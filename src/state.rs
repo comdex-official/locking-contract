@@ -75,6 +75,7 @@ pub struct State {
     pub t4: PeriodWeight,
     pub unlock_period: u64,
     pub num_tokens: u64,
+    pub vesting_contract:Addr,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -114,7 +115,8 @@ pub struct Proposal{
     pub emission_completed: bool,
     pub rebase_completed: bool,
     pub emission_distributed: u128,
-    pub rebase_distributed: u128
+    pub rebase_distributed: u128,
+    pub total_voted_weight: u128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -125,6 +127,15 @@ pub struct Emission{
     pub emmission_rate: Decimal,
     pub distributed_rewards :u128,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Vote{
+    pub app_id: u64,
+    pub extended_pair: u64,
+    pub vote_weight: u128,
+    pub bribe_claimed: bool,
+}
+
 
 
 
@@ -138,6 +149,10 @@ pub const PROPOSALVOTE: Map<(u64,u64),Uint128>=Map::new("Proposal vote");
 
 pub const PROPOSAL: Map<u64,Proposal>=Map::new("Proposal vote");
 
-pub const BRIBES_BY_PROPOSAL:  Map<u64,Vec<Coin>>=Map::new("Proposal vote");
+pub const BRIBES_BY_PROPOSAL:  Map<(u64,u64),Vec<Coin>>=Map::new("Proposal vote");
 
 pub const EMISSION:  Map<u64,Emission>=Map::new("Proposal vote");
+
+pub const VOTERS_VOTE: Map<(Addr,u64),bool>=Map::new("has voted");
+
+pub const VOTERSPROPOSAL: Map<(Addr,u64),Vote>=Map::new("has voted");

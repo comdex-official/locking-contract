@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use crate::state::{LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,Coin};
+use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,Coin,Addr};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -11,9 +11,8 @@ pub struct InstantiateMsg {
     pub t4: PeriodWeight,
     pub unlock_period: u64,
     pub voting_period :u64,
+    pub vesting_contract: Addr,
 }
-
-
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -23,8 +22,11 @@ pub enum ExecuteMsg {
                   proposal_id:u64,
                   extended_pair: u64},
     RaiseProposal { app_id: u64 },
-    Bribe{proposal_id:u64 },
-    Emmission{proposal_id:u64 },
+    ClaimBribe{
+        proposal_id:u64,},
+    Bribe{proposal_id:u64,
+          extended_pair:u64},
+    Emmission{proposal_id:u64},
     Rebase{proposal_id:u64 },
     Lock {
         app_id: u64,
@@ -70,6 +72,10 @@ pub enum QueryMsg {
 
     /// Query the total vtokens issued to a single user.
     IssuedVtokens { address: Option<String> },
+    VestedTokens
+    {
+        denom: String,
+    },
 }
 
 

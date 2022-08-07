@@ -6,7 +6,7 @@ use cosmwasm_std::{
 
 use crate::msg::{
     IssuedNftResponse, IssuedVtokensResponse, LockedTokensResponse, QueryMsg,
-    UnlockedTokensResponse, UnlockingTokensResponse,
+    UnlockedTokensResponse, UnlockingTokensResponse,VestedTokens
 };
 use crate::state::{Status, LOCKED, TOKENS, UNLOCKED, UNLOCKING, VTOKENS};
 

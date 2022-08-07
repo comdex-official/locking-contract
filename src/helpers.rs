@@ -36,3 +36,20 @@ pub fn query_get_asset_data(deps: Deps<ComdexQuery>, asset_id_param: u64) -> Std
 
     Ok(asset_denom.denom)
 }
+
+/// get token_supply of an asset at current height
+pub fn get_token_supply(
+    deps: Deps<ComdexQuery>,
+    app_id_param: u64,
+    asset_id_param: u64,
+) -> StdResult<u64> {
+    let total_token_supply = deps
+        .querier
+        .query::<TotalSupplyResponse>(&QueryRequest::Custom(ComdexQuery::TotalSupply {
+            app_id: app_id_param,
+            asset_id: asset_id_param,
+        }))?;
+
+    Ok(total_token_supply.current_supply)
+}
+
