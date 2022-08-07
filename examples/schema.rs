@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use locking_contract::msg::{ExecuteMsg, GetCountResponse, InstantiateMsg, QueryMsg};
+use locking_contract::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use locking_contract::state::State;
 
 fn main() {
@@ -11,10 +11,8 @@ fn main() {
     out_dir.push("schema");
     create_dir_all(&out_dir).unwrap();
     remove_schemas(&out_dir).unwrap();
-
     export_schema(&schema_for!(InstantiateMsg), &out_dir);
     export_schema(&schema_for!(ExecuteMsg), &out_dir);
     export_schema(&schema_for!(QueryMsg), &out_dir);
     export_schema(&schema_for!(State), &out_dir);
-    export_schema(&schema_for!(GetCountResponse), &out_dir);
 }
