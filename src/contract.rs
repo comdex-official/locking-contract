@@ -55,6 +55,7 @@ pub fn execute(
         ExecuteMsg::ClaimBribe { proposal_id} => claim_bribe_proposal(deps,env, info, proposal_id),
         ExecuteMsg::Emmission { proposal_id } => emission(deps,env, info, proposal_id),
         ExecuteMsg::Rebase { proposal_id } => emission(deps,env, info, proposal_id),
+        ExecuteMsg::ClaimRebase{ proposal_id } => emission(deps,env, info, proposal_id),
         ExecuteMsg::Lock {
             app_id,
             locking_period,
@@ -80,7 +81,7 @@ pub fn handle_lock_nft(
     locking_period: LockingPeriod,
 ) -> Result<Response, ContractError> {
 
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
+    query_app_exists(deps.as_ref(), app_id)?;
 
     // Only allow a single denomination
     if info.funds.is_empty() {
@@ -332,7 +333,7 @@ pub fn handle_unlock_nft(
     app_id: u64,
     denom: String,
 ) -> Result<Response, ContractError> {
-    let mut state = STATE.load(deps.storage)?;
+    let state = STATE.load(deps.storage)?;
     let mut Vtoken = VTOKENS.load(deps.storage, (info.sender, &denom)).unwrap();
 
     if Vtoken.status == Status::Unlocked {
@@ -584,6 +585,41 @@ pub fn rebase(deps: DepsMut<ComdexQuery>,env:Env,info:MessageInfo, proposal_id:u
 
 }
 
+pub fn claimrebase(deps: DepsMut<ComdexQuery>,env:Env,info:MessageInfo, proposal_id:u64) -> Result<Response, ContractError> {
+    //check if active proposal
+    let mut proposal=PROPOSAL.load(deps.storage, proposal_id)?;
+    // check emission already compluted and executed
+    if !proposal.rebase_completed
+    {
+        return Err(ContractError::CustomError { val: "Rebase calculation".to_string() });
+    }
+    if proposal.voting_end_time>env.block.time.seconds(){
+        return Err(ContractError::CustomError { val: "proposal in voting period".to_string() });}
+    
+    let app_id=proposal.app_id;
+    //check governance token via app_id
+    let app_response = query_app_exists(deps.as_ref(), app_id)?;
+
+    let gov_token_id = app_response.gov_token_id;
+
+    let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
+    if gov_token_denom.is_empty() || gov_token_id == 0 {
+        return Err(ContractError::CustomError { val: "Invalid gov token".to_string() });
+    }
+
+    let total_weight = get_token_supply(deps.as_ref(), app_id, gov_token_id)?;
+    if total_weight == 0 {
+        return Err(ContractError::CustomError { val: "Current Circulating Supply is 0".to_string() });
+    }
+    let total_vtoken_weight=SUPPLY.load(deps.storage, &gov_token_denom)?;
+    let rebase_amount=proposal.rebase_distributed;
+    let v_token_balance=VTOKENS.load(deps.storage, (info.sender,&gov_token_denom))?.vtoken.amount;
+    let rebase_claimable=(v_token_balance.u128().div(total_vtoken_weight.vtoken))*rebase_amount;
+
+    PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
+    Ok(Response::new().add_attribute("method", "voted for proposal"))
+
+}
 
 pub fn vote_proposal(deps: DepsMut<ComdexQuery>,env:Env,info:MessageInfo, app_id : u64,proposal_id:u64,extended_pair:u64) -> Result<Response, ContractError> {
 

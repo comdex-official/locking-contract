@@ -28,6 +28,7 @@ pub enum ExecuteMsg {
           extended_pair:u64},
     Emmission{proposal_id:u64},
     Rebase{proposal_id:u64 },
+    ClaimRebase{proposal_id:u64 },
     Lock {
         app_id: u64,
         locking_period: LockingPeriod,
