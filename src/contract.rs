@@ -354,6 +354,7 @@ fn update_locked(
     Ok(())
 }
 
+/// Handles the withdrawal of tokens after completion of locking period.
 pub fn handle_withdraw(
     deps: DepsMut<ComdexQuery>,
     env: Env,
@@ -387,10 +388,15 @@ pub fn handle_withdraw(
     let index = locked_vtoken[0].0;
     let vtoken = locked_vtoken[0].1.to_owned();
 
+    let PeriodWeight { weight, period } =
+        get_period(STATE.load(deps.as_ref().storage)?, locking_period)?;
+
     // balance post withdrawal
-    let balance = vtoken.token.amount.sub(Uint128::from(amount));
+    let token_balance = vtoken.token.amount.sub(Uint128::from(amount));
+    let vtoken_balance = Uint128::from(amount) * weight;
     // Update token balance
-    vtokens[index].token.amount = balance;
+    vtokens[index].token.amount = token_balance;
+    vtokens[index].vtoken.amount = vtoken_balance;
     // Save the changes to VTOKENS
     VTOKENS.save(
         deps.storage,
@@ -399,6 +405,19 @@ pub fn handle_withdraw(
     )?;
 
     // !------- Need to update NFT.vtokens -------!
+    let nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
+    let denom_index: Vec<(usize, &Vtoken)> = nft
+        .vtokens
+        .iter()
+        .enumerate()
+        .filter(|el| el.1.token.denom == denom && el.1.period == locking_period)
+        .collect();
+
+    let index = denom_index[0].0;
+    nft.vtokens[index].token.amount = token_balance;
+    nft.vtokens[index].vtoken.amount = vtoken_balance;
+
+    TOKENS.save(deps.storage, info.sender.clone(), &nft)?;
 
     Ok(Response::new()
         .add_message(BankMsg::Send {
