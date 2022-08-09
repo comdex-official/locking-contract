@@ -1,6 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::state::{LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
+use crate::state::{LockingPeriod, PeriodWeight, TokenInfo, Vtoken, CallType};
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,Coin,Addr};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -32,14 +32,16 @@ pub enum ExecuteMsg {
     Lock {
         app_id: u64,
         locking_period: LockingPeriod,
+        calltype:CallType
     },
     /// Unlocks the locked tokens after meeting certain criteria
-    Unlock { app_id: u64, denom: String },
+    Unlock { app_id: u64, denom: String,lockingperiod:LockingPeriod },
     /// Withdraws the locked tokens after meeting certain criteria
     Withdraw {
         app_id: u64,
         denom: String,
         amount: u64,
+        lockingperiod:LockingPeriod
     },
 
 }

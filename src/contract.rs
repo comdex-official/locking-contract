@@ -6,7 +6,7 @@ use std::ops::{AddAssign, Sub, SubAssign, Div, Mul};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{  APPCURRENTPROPOSAL,Proposal,VOTINGPERIOD,PROPOSALCOUNT,PROPOSAL,PROPOSALVOTE,BRIBES_BY_PROPOSAL,EMISSION,VOTERS_VOTE,VOTERSPROPOSAL,Vote};
+use crate::state::{  APPCURRENTPROPOSAL,Proposal,VOTINGPERIOD,PROPOSALCOUNT,PROPOSAL,PROPOSALVOTE,BRIBES_BY_PROPOSAL,EMISSION,VOTERS_VOTE,VOTERSPROPOSAL,Vote, CallType, LockingPeriodOfTokens};
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:{{project-name}}";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -59,14 +59,16 @@ pub fn execute(
         ExecuteMsg::Lock {
             app_id,
             locking_period,
-        } => handle_lock_nft(deps, env, info, app_id, locking_period),
+            calltype
+        } => handle_lock_nft(deps, env, info, app_id, locking_period,calltype),
 
-        ExecuteMsg::Unlock { app_id, denom } => handle_unlock_nft(deps, env, info, app_id, denom),
+        ExecuteMsg::Unlock { app_id, denom ,lockingperiod} => handle_unlock_nft(deps, env, info, app_id, denom,lockingperiod),
         ExecuteMsg::Withdraw {
             app_id,
             denom,
             amount,
-        } => withdraw(deps, &env, info, denom, amount),
+            lockingperiod
+        } => withdraw(deps, &env, info, denom, amount,lockingperiod),
 
     }
 }
@@ -79,10 +81,8 @@ pub fn handle_lock_nft(
     info: MessageInfo,
     app_id: u64,
     locking_period: LockingPeriod,
+    calltype:CallType
 ) -> Result<Response, ContractError> {
-
-    query_app_exists(deps.as_ref(), app_id)?;
-
     // Only allow a single denomination
     if info.funds.is_empty() {
         return Err(ContractError::InsufficientFunds { funds: 0 });
@@ -104,13 +104,15 @@ pub fn handle_lock_nft(
     // Loads the NFT if present else None
     let nft = TOKENS.may_load(deps.storage, info.sender.clone())?;
 
+if calltype == CallType::Lock{
     match nft {
         Some(mut token) => {
             let res: Vec<&Vtoken> = token
                 .vtokens
                 .iter()
-                .filter(|s| s.token.denom == info.funds[0].denom && s.period == locking_period)
+                .filter(|s| s.token.denom == info.funds[0].denom)
                 .collect();
+
 
             if res.is_empty() {
                 // !------- BUG -------!
@@ -132,17 +134,28 @@ pub fn handle_lock_nft(
             } else {
                 let mut vtoken = res[0].to_owned();
 
-                if let Status::Locked = vtoken.status {
-                    ()
-                } else {
-                    return Err(ContractError::NotLocked {});
-                }
+                let vtokenperiod: Vec<&LockingPeriodOfTokens> = vtoken
+                .period
+                .iter()
+                .filter(|s| s.period == locking_period)
+                .collect();
 
-                let mut remaining: Vec<Vtoken> = token
+                if vtokenperiod.is_empty(){
+                    let mut _period =LockingPeriodOfTokens{
+                        period: locking_period.clone(),
+                        start_time: env.block.time,
+                        end_time: env.block.time.plus_seconds(period),
+                        status: Status::Locked,
+                    };
+
+                    let mut list_period =vtoken.period;
+                    list_period.push(_period);
+
+                    let mut remaining: Vec<Vtoken> = token
                     .vtokens
                     .into_iter()
                     .filter(|s| {
-                        !(s.token.denom == info.funds[0].denom && s.period == locking_period)
+                        !(s.token.denom == info.funds[0].denom)
                     })
                     .collect();
 
@@ -157,13 +170,49 @@ pub fn handle_lock_nft(
 
                 // The new start time will be current block time, i.e. the old
                 // tokens will also unlock with the new tokens.
-                vtoken.start_time = env.block.time;
-                vtoken.end_time = env.block.time.plus_seconds(period);
+                // _period.start_time = env.block.time;
+                // _period.end_time = env.block.time.plus_seconds(period);
 
                 remaining.push(vtoken);
                 token.vtokens = remaining;
 
                 TOKENS.save(deps.storage, info.sender.clone(), &token)?;
+                }
+                else{
+                let mut _period =vtokenperiod[0].clone();
+                if let Status::Locked = _period.status {
+                    ()
+                } else {
+                    return Err(ContractError::NotLocked {});
+                }
+
+                let mut remaining: Vec<Vtoken> = token
+                    .vtokens
+                    .into_iter()
+                    .filter(|s| {
+                        !(s.token.denom == info.funds[0].denom)
+                    })
+                    .collect();
+
+                // Increase the token count
+                vtoken.token.amount.add_assign(info.funds[0].amount.clone());
+
+                // Increase the vtoken count
+                vtoken
+                    .vtoken
+                    .amount
+                    .add_assign(weight * info.funds[0].amount);
+
+                // The new start time will be current block time, i.e. the old
+                // tokens will also unlock with the new tokens.
+                _period.start_time = env.block.time;
+                _period.end_time = env.block.time.plus_seconds(period);
+
+                remaining.push(vtoken);
+                token.vtokens = remaining;
+
+                TOKENS.save(deps.storage, info.sender.clone(), &token)?;
+            }
             }
 
             // LOCKED.save(deps.storage, info.sender.clone(), &locked_tokens)?;
@@ -211,6 +260,35 @@ pub fn handle_lock_nft(
             TOKENS.save(deps.storage, info.sender.clone(), &new_nft)?;
         }
     }
+    }else if calltype == CallType::UpdateAmount{
+        let mut vtoken = VTOKENS.load(deps.storage, (info.sender.clone(),&info.funds[0].denom)).unwrap();
+
+            // Increase the token count
+            vtoken.token.amount.add_assign(info.funds[0].amount.clone());
+
+            // Increase the vtoken count
+            vtoken
+                .vtoken
+                .amount
+                .add_assign(weight * info.funds[0].amount);
+
+            // The new start time will be current block time, i.e. the old
+            // tokens will also unlock with the new tokens.
+            // _period.start_time = env.block.time;
+            // _period.end_time = env.block.time.plus_seconds(period);
+    }else if calltype == CallType::UpdateLokingPeriod {
+
+        let vtoken = VTOKENS.load(deps.storage, (info.sender.clone(),&info.funds[0].denom)).unwrap();
+        let mut vtokenperiod: Vec<&LockingPeriodOfTokens> = vtoken
+                .period
+                .iter()
+                .filter(|s| s.period == locking_period.clone())
+                .collect();
+        let mut vperiod =vtokenperiod[0].clone();
+                vperiod.end_time = vtokenperiod[0].end_time.plus_seconds(period);
+    }else {
+        ContractError::NotFound { msg: "First need to Lock the NFT".to_string() };
+    }
 
     Ok(Response::new()
         .add_attribute("action", "lock")
@@ -222,7 +300,7 @@ fn create_vtoken(
     env: &Env,
     info: &MessageInfo,
     locking_period: LockingPeriod,
-    period: u64,
+    _period: u64,
     weight: Decimal,
 ) -> Result<Vtoken, ContractError> {
     // Create the vtoken
@@ -238,16 +316,19 @@ fn create_vtoken(
         info.funds[0].amount.u128(),
     )?;
 
+    let  mut _period =LockingPeriodOfTokens{
+        period: locking_period,
+        start_time: env.block.time,
+        end_time: env.block.time.plus_seconds(_period),
+        status: Status::Locked,
+    };
     Ok(Vtoken {
         token: info.funds[0].clone(),
         vtoken: Coin {
             denom: vdenom,
             amount,
         },
-        period: locking_period,
-        start_time: env.block.time,
-        end_time: env.block.time.plus_seconds(period),
-        status: Status::Locked,
+        period:vec![_period],
     })
 }
 
@@ -332,22 +413,30 @@ pub fn handle_unlock_nft(
     info: MessageInfo,
     app_id: u64,
     denom: String,
+    locking_period:LockingPeriod,
 ) -> Result<Response, ContractError> {
-    let state = STATE.load(deps.storage)?;
+    let mut state = STATE.load(deps.storage)?;
     let mut Vtoken = VTOKENS.load(deps.storage, (info.sender, &denom)).unwrap();
 
-    if Vtoken.status == Status::Unlocked {
+    let mut vtokenperiod: Vec<&LockingPeriodOfTokens> = Vtoken
+    .period
+    .iter()
+    .filter(|s| s.period == locking_period)
+    .collect();
+
+    let mut vperiod = vtokenperiod[0].clone();
+    if vperiod.status == Status::Unlocked {
         ContractError::AllreadyUnLocked {};
     }
     let t = Timestamp::from_seconds(state.unlock_period).seconds();
 
-    if Vtoken.end_time < env.block.time
-        && Vtoken.end_time.seconds() + state.unlock_period > env.block.time.seconds()
+    if vperiod.end_time < env.block.time
+        && vperiod.end_time.seconds() + state.unlock_period > env.block.time.seconds()
     {
-        Vtoken.status = Status::Unlocking;
+        vperiod.status = Status::Unlocking;
         // UNLOCKING.save(deps.storage, info.sender, data)
-    } else if Vtoken.end_time.seconds() + state.unlock_period < env.block.time.seconds() {
-        Vtoken.status = Status::Unlocked
+    } else if vperiod.end_time.seconds() + state.unlock_period < env.block.time.seconds() {
+        vperiod.status = Status::Unlocked
     } else {
         ContractError::TimeNotOvered {};
     }
@@ -355,18 +444,26 @@ pub fn handle_unlock_nft(
     Ok(Response::new().add_attribute("action", "unlock"))
 }
 
+
 pub fn withdraw(
     deps: DepsMut<ComdexQuery>,
-    _env: &Env,
+    env: &Env,
     info: MessageInfo,
     denom: String,
     amount: u64,
+    locking_period:LockingPeriod
 ) -> Result<Response, ContractError> {
     let mut Vtoken = VTOKENS
         .load(deps.storage, (info.sender.clone(), &denom))
         .unwrap();
 
-    if Vtoken.status != Status::Unlocked {
+    let vtokenperiod: Vec<&LockingPeriodOfTokens> = Vtoken
+    .period
+    .iter()
+    .filter(|s| s.period == locking_period)
+    .collect();
+
+    if  vtokenperiod[0].status != Status::Unlocked {
         ContractError::NotUnlocked {};
     }
 
@@ -384,9 +481,10 @@ pub fn withdraw(
         &Vtoken,
     )?;
     let vtoken = VTOKENS.load(deps.storage, (info.sender.clone(), &info.funds[0].denom))?;
-    if vtoken.token.amount.is_zero() {
-        VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
-    }
+
+    // if vtoken.token.amount.is_zero() {
+    //     VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
+    // }
 
     Ok(Response::new()
         .add_message(BankMsg::Send {

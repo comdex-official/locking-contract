@@ -1,9 +1,10 @@
+use std::ops::IndexMut;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use cw_storage_plus::{Item, Map};
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,Coin,Decimal, Uint128};
 use cosmwasm_std::{Addr, Timestamp};
-
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -36,7 +37,6 @@ pub enum Status {
     Unlocked,
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct Vtoken {
@@ -44,6 +44,13 @@ pub struct Vtoken {
     pub token: Coin,
     /// amount of vtoken created
     pub vtoken: Coin,
+    /// Locking period i.e. T1..4
+    pub period: Vec<LockingPeriodOfTokens>
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct LockingPeriodOfTokens{
     /// Locking period i.e. T1..4
     pub period: LockingPeriod,
     /// Time at which the tokens were locked
@@ -53,6 +60,19 @@ pub struct Vtoken {
     /// Current status of the tokens
     pub status: Status,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CallType{
+    Lock,
+
+    Deposit,
+
+    UpdateAmount,
+
+    UpdateLokingPeriod,
+}
+
 
 /// NFT struct for holding the token info
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
