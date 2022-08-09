@@ -1,5 +1,5 @@
 // !------- DO NOT USE -------!
-// #![allow(unused_variables, dead_code, unused_imports)]
+#![allow(unused_variables, dead_code, unused_imports)]
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
@@ -92,11 +92,11 @@ pub fn execute(
             denom,
             amount,
             lockingperiod,
-        } => withdraw(deps, &env, info, denom, amount, lockingperiod),
+        } => handle_withdraw(deps, env, info, denom, amount, lockingperiod),
     }
 }
 
-pub fn lock_funds(
+fn lock_funds(
     deps: DepsMut<ComdexQuery>,
     env: Env,
     app_id: u64,
@@ -241,8 +241,8 @@ pub fn handle_lock_nft(
         deps,
         env,
         app_id,
-        info.sender,
-        info.funds[0],
+        info.sender.clone(),
+        info.funds[0].clone(),
         locking_period,
         calltype,
     )?;
@@ -357,53 +357,58 @@ fn update_locked(
     Ok(())
 }
 
-pub fn withdraw(
+pub fn handle_withdraw(
     deps: DepsMut<ComdexQuery>,
-    env: &Env,
+    env: Env,
     info: MessageInfo,
     denom: String,
     amount: u64,
     locking_period: LockingPeriod,
 ) -> Result<Response, ContractError> {
-    let mut Vtoken = VTOKENS
+    // Load the token
+    let mut vtokens = VTOKENS
         .load(deps.storage, (info.sender.clone(), &denom))
         .unwrap();
 
-    let vtokenperiod: Vec<&LockingPeriodOfTokens> = Vtoken
-        .period
+    // Retrive the locked tokens with the given locking period
+    let locked_vtoken: Vec<(usize, &Vtoken)> = vtokens
         .iter()
-        .filter(|s| s.period == locking_period)
+        .enumerate()
+        .filter(|s| s.1.period == locking_period)
         .collect();
 
-    if vtokenperiod[0].status != Status::Unlocked {
-        ContractError::NotUnlocked {};
+    if locked_vtoken.is_empty() {
+        return Err(ContractError::NotLocked {});
     }
 
-    if Vtoken.token.amount < Uint128::from(amount) {
-        ContractError::InsufficientFunds {
-            funds: Vtoken.token.amount.u128(),
+    if locked_vtoken[0].1.token.amount < Uint128::from(amount) {
+        ContractError::CustomError {
+            val: "Cannot withdraw more than deposted".into(),
         };
     }
 
-    let withdraw_amount = Vtoken.token.amount.sub(Uint128::from(amount));
-    Vtoken.token.amount -= Uint128::from(amount);
+    let index = locked_vtoken[0].0;
+    let vtoken = locked_vtoken[0].1.to_owned();
+
+    // balance post withdrawal
+    let balance = vtoken.token.amount.sub(Uint128::from(amount));
+    // Update token balance
+    vtokens[index].token.amount = balance;
+    // Save the changes to VTOKENS
     VTOKENS.save(
         deps.storage,
         (info.sender.clone(), &info.funds[0].denom),
-        &Vtoken,
+        &vtokens,
     )?;
-    let vtoken = VTOKENS.load(deps.storage, (info.sender.clone(), &info.funds[0].denom))?;
 
-    // if vtoken.token.amount.is_zero() {
-    //     VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
-    // }
+    // !------- Need to update NFT.vtokens -------!
 
     Ok(Response::new()
         .add_message(BankMsg::Send {
             to_address: info.sender.to_string(),
             amount: vec![Coin {
                 denom,
-                amount: withdraw_amount,
+                amount: Uint128::from(amount),
             }],
         })
         .add_attribute("action", "Withdraw")

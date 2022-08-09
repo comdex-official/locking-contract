@@ -64,7 +64,7 @@ pub enum CallType {
 pub struct TokenInfo {
     /// Owner of the NFT
     pub owner: Addr,
-    /// vtokens issued
+    /// All Vtokens for a user
     pub vtokens: Vec<Vtoken>,
     /// Unique token id
     pub token_id: u64,
@@ -102,7 +102,8 @@ pub const LOCKED: Map<Addr, Vec<Coin>> = Map::new("locked");
 pub const UNLOCKED: Map<Addr, Vec<Coin>> = Map::new("unlocked");
 // Total supply of each (vtoken supplied, token deposited)
 pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");
-// Vtoken owned by an address for a specific denom
+// Vtoken owned by an address for a specific denom. For each denom, each vector
+// will only contain four Vtokens, because of the 4 LockingPeriods.
 pub const VTOKENS: Map<(Addr, &str), Vec<Vtoken>> = Map::new("Vtokens by NFT");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
