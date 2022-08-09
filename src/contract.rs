@@ -811,3 +811,104 @@ pub fn raise_proposal(deps: DepsMut<ComdexQuery>,env: Env, _info: MessageInfo, a
     Ok(Response::new().add_attribute("method", "reset"))
 }
 
+
+pub fn TransferOwnerShip(
+    deps: DepsMut<ComdexQuery>,
+    env: &Env,
+    info: MessageInfo,
+    recipent:Addr,
+    locking_period:LockingPeriod
+){
+    let mut state = STATE.load(deps.storage).unwrap();
+    let nft = TOKENS.may_load(deps.storage, recipent.clone()).unwrap();
+  // Load the locking period and weight
+  let PeriodWeight { period, weight } = get_period(state.clone(), locking_period.clone()).unwrap();
+    match nft {
+
+        Some(mut token) => {
+            let res: Vec<&Vtoken> = token
+                .vtokens
+                .iter()
+                .filter(|s| s.token.denom == info.funds[0].denom)
+                .collect();
+
+                if res.is_empty() {
+                    // !------- BUG -------!
+                    // !------- VTOKENS is not being updated -------!
+
+                    // create new token
+                    let mut vdenom = String::from("v");
+                    vdenom.push_str(&info.funds[0].denom);
+
+                    let amount = weight * info.funds[0].amount;
+                    update_denom_supply(
+                        deps.storage,
+                        vdenom.as_str(),
+                        amount.u128(),
+                        info.funds[0].amount.u128(),
+                    ).unwrap();
+
+                    let  mut _period =LockingPeriodOfTokens{
+                        period: locking_period,
+                        start_time: env.block.time,
+                        end_time: env.block.time.plus_seconds(period),
+                        status: Status::Locked,
+                    };
+
+                    let vtoken = Vtoken{
+                        token: info.funds[0],
+                        vtoken: Coin{ denom: vdenom, amount :amount },
+                        period: vec![_period],
+                    };
+
+                    VTOKENS.save(deps.storage, (recipent,&info.funds[0].denom), &vtoken).unwrap();
+
+                    // // Save updated nft
+                    // token.vtokens.push(new_vtoken);
+                    // TOKENS.save(deps.storage, info.sender.clone(), &token).unwrap();
+
+        }else{
+
+        }
+    }
+        None =>  {
+            state.num_tokens += 1;
+
+            let mut new_nft = TokenInfo {
+                owner: recipent.clone(),
+                vtokens: vec![],
+                token_id: state.num_tokens,
+            };
+
+            let mut vdenom = String::from("v");
+                    vdenom.push_str(&info.funds[0].denom);
+
+                    let amount = weight * info.funds[0].amount;
+                    update_denom_supply(
+                        deps.storage,
+                        vdenom.as_str(),
+                        amount.u128(),
+                        info.funds[0].amount.u128(),
+                    ).unwrap();
+
+                    let  mut _period =LockingPeriodOfTokens{
+                        period: locking_period,
+                        start_time: env.block.time,
+                        end_time: env.block.time.plus_seconds(period),
+                        status: Status::Locked,
+                    };
+
+                    token.vtokens.push(new_vtoken);
+                    TOKENS.save(deps.storage, info.sender.clone(), &token).unwrap();
+        }
+    }
+
+    let mut senderVtoken = VTOKENS
+        .load(deps.storage, (info.sender.clone(), &info.funds[0].denom))
+        .unwrap();
+    let mut reciverVtoken = VTOKENS
+    .load(deps.storage, (recipent.clone(), &info.funds[0].denom))
+    .unwrap();
+
+}
+
