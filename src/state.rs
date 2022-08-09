@@ -1,9 +1,5 @@
-use std::ops::IndexMut;
-
-use cosmwasm_std::{
-    to_binary, Binary, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128,
-};
 use cosmwasm_std::{Addr, Timestamp};
+use cosmwasm_std::{Coin, Decimal, Uint128};
 use cw_storage_plus::{Item, Map};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -29,12 +25,8 @@ pub enum LockingPeriod {
 pub enum Status {
     /// When the tokens are in the vesting period.
     Locked,
-    /// When the tokens have completed the locking period(T1..4) but not the
-    /// unlock period (State.unlock_period). The owner has to wait for the
-    /// unlock period to be over, before retrieving their tokens.
-    Unlocking,
-    /// When the token have completed both the locking period and the unlock
-    /// period. The owner is free to retrieve their tokens.
+    /// When the tokens have completed the locking period,
+    /// the owner is free to retrieve their tokens.
     Unlocked,
 }
 
@@ -58,10 +50,10 @@ pub struct Vtoken {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CallType {
-    /// Update only the amount in the vtoken if another deposit for the same
+    /// Update only the amount in the Vtoken if another deposit for the same
     /// locking period exists.
     UpdateAmount,
-    /// Update amount and time period in the vtoken, if another deposit for the
+    /// Update amount and time period in the Vtoken, if another deposit for the
     /// same locking period exists.
     UpdatePeriod,
 }
@@ -86,7 +78,6 @@ pub struct State {
     pub t2: PeriodWeight,
     pub t3: PeriodWeight,
     pub t4: PeriodWeight,
-    pub unlock_period: u64,
     pub num_tokens: u64,
     pub vesting_contract: Addr,
 }
@@ -107,14 +98,11 @@ pub const STATE: Item<State> = Item::new("state");
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Owner to Locked tokens
 pub const LOCKED: Map<Addr, Vec<Coin>> = Map::new("locked");
-// Owner to unlocking tokens, i.e. tokens in unlock_period
-pub const UNLOCKING: Map<Addr, Vec<Coin>> = Map::new("unlocking");
 // Owner to unlocked tokens, i.e. token that can be withdrawn
 pub const UNLOCKED: Map<Addr, Vec<Coin>> = Map::new("unlocked");
 // Total supply of each (vtoken supplied, token deposited)
 pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");
 // Vtoken owned by an address for a specific denom
-// !------- Should be Coin rather than Vtoken -------!
 pub const VTOKENS: Map<(Addr, &str), Vec<Vtoken>> = Map::new("Vtokens by NFT");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
