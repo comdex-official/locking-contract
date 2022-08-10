@@ -91,6 +91,12 @@ pub fn execute(
             lockingperiod,
         } => handle_withdraw(deps, env, info, denom, amount, lockingperiod),
 
+        ExecuteMsg::TransferOwnership {
+            recipent,
+            locking_period,
+            denom,
+        } => handle_transfer_ownership(deps, &env, info, recipent, locking_period, denom),
+
         _ => panic!("Not implemented"),
     }
 }
@@ -487,6 +493,52 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
         LockingPeriod::T3 => state.t3,
         LockingPeriod::T4 => state.t4,
     })
+}
+
+pub fn handle_transfer_ownership(
+    deps: DepsMut<ComdexQuery>,
+    env: &Env,
+    info: MessageInfo,
+    recipent: Addr,
+    locking_period: LockingPeriod,
+    denom: String,
+) -> Result<Response, ContractError> {
+    let mut sender_vtokens = VTOKENS
+        .load(deps.storage, (info.sender.clone(), &denom))
+        .unwrap();
+
+    let mut sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
+        .iter()
+        .enumerate()
+        .filter(|s| s.1.period == locking_period)
+        .collect();
+
+    let mut reciver_vtokens = VTOKENS
+        .load(deps.storage, (recipent.clone(), &denom))
+        .unwrap();
+
+    let mut reciver_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
+        .iter()
+        .enumerate()
+        .filter(|s| s.1.period == locking_period)
+        .collect();
+
+    if reciver_vtoken.is_empty() {
+        let res = Vtoken {
+            token: sender_vtoken[0].1.token.clone(),
+            vtoken: sender_vtoken[0].1.vtoken.clone(),
+            period: sender_vtoken[0].1.period.clone(),
+            start_time: sender_vtoken[0].1.start_time,
+            end_time: sender_vtoken[0].1.end_time,
+            status: sender_vtoken[0].1.status.clone(),
+        };
+        reciver_vtokens.push(res);
+    } else {
+        reciver_vtoken[0].1.token.amount += sender_vtoken[0].1.token.amount;
+        reciver_vtoken[0].1.vtoken.amount += sender_vtoken[0].1.vtoken.amount;
+        sender_vtoken.remove(0);
+    }
+    Ok(Response::new().add_attribute("action", "transferOwnership"))
 }
 
 pub fn bribe_proposal(
