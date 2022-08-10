@@ -1,7 +1,5 @@
 use crate::state::{CallType, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
-use cosmwasm_std::{
-    to_binary, Addr, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
-};
+use cosmwasm_std::{Addr, Coin};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -93,11 +91,6 @@ pub struct IssuedNftResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct UnlockedTokensResponse {
-    pub tokens: Vec<Coin>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct UnlockingTokensResponse {
     pub tokens: Vec<Coin>,
 }
 

@@ -8,20 +8,21 @@ use cw2::set_contract_version;
 use std::ops::{AddAssign, Div, Mul, Sub, SubAssign};
 
 use crate::error::ContractError;
+use crate::helpers::{get_token_supply, query_app_exists, query_get_asset_data};
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{
     CallType, Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, EMISSION, PROPOSAL,
     PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE, VOTINGPERIOD,
 };
-// version info for migration info
-const CONTRACT_NAME: &str = "crates.io:{{project-name}}";
-const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
-use crate::helpers::{get_token_supply, query_app_exists, query_get_asset_data};
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, LOCKED, STATE,
     SUPPLY, TOKENS, UNLOCKED, VTOKENS,
 };
 use comdex_bindings::{ComdexMessages, ComdexQuery};
+
+// version info for migration info
+const CONTRACT_NAME: &str = "crates.io:{{project-name}}";
+const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -153,10 +154,10 @@ fn lock_funds(
                 vtoken.token.amount.add_assign(funds.amount.clone());
 
                 // Increase the vtoken count
-                vtoken.vtoken.amount.add_assign(weight * funds.amount);
+                let updated_vtoken = weight * funds.amount;
+                vtoken.vtoken.amount.add_assign(updated_vtoken);
 
-                // The new start time will be current block time, i.e. the old
-                // tokens will also unlock with the new tokens.
+                // start_time and end_time are updated along with tokens
                 if let CallType::UpdatePeriod = calltype.unwrap_or(CallType::UpdateAmount) {
                     vtoken.start_time = env.block.time;
                     vtoken.end_time = env.block.time.plus_seconds(period);
@@ -164,6 +165,14 @@ fn lock_funds(
 
                 remaining.push(vtoken);
                 token.vtokens = remaining;
+
+                update_denom_supply(
+                    deps.storage,
+                    &funds.denom,
+                    updated_vtoken.u128(),
+                    funds.amount.u128(),
+                    true,
+                )?;
 
                 TOKENS.save(deps.storage, sender.clone(), &token)?;
             }
@@ -264,7 +273,13 @@ fn create_vtoken(
 
     let amount = weight * funds.amount;
 
-    update_denom_supply(storage, vdenom.as_str(), amount.u128(), funds.amount.u128())?;
+    update_denom_supply(
+        storage,
+        &funds.denom,
+        amount.u128(),
+        funds.amount.u128(),
+        true,
+    )?;
 
     Ok(Vtoken {
         token: funds.clone(),
@@ -283,22 +298,41 @@ fn create_vtoken(
 /// tokens locked.
 fn update_denom_supply(
     storage: &mut dyn Storage,
-    vdenom: &str,
+    denom: &str,
     vquantity: u128,
     quantity: u128,
+    add: bool,
 ) -> Result<(), ContractError> {
     // Load the total supply in the for the given denom
-    let vdenom_supply = SUPPLY.may_load(storage, vdenom)?;
+    let denom_supply = SUPPLY.may_load(storage, denom)?;
+    if let None = denom_supply {
+        if !add {
+            return Err(ContractError::NotFound {
+                msg: "vTokens don't exist for the given denom".to_string(),
+            });
+        }
+    }
     // Create new struct if not present in SUPPLY
-    let mut vdenom_supply_struct = vdenom_supply.unwrap_or(TokenSupply {
+    let mut denom_supply_struct = denom_supply.unwrap_or(TokenSupply {
         token: 0,
         vtoken: 0,
     });
 
-    vdenom_supply_struct.vtoken += vquantity;
-    vdenom_supply_struct.token += quantity;
+    if add {
+        denom_supply_struct.vtoken += vquantity;
+        denom_supply_struct.token += quantity;
+    } else {
+        if denom_supply_struct.vtoken < vquantity {
+            return Err(ContractError::InsufficientFunds { funds: vquantity });
+        } else if denom_supply_struct.token < quantity {
+            return Err(ContractError::InsufficientFunds { funds: quantity });
+        }
 
-    SUPPLY.save(storage, vdenom, &vdenom_supply_struct)?;
+        denom_supply_struct.vtoken -= vquantity;
+        denom_supply_struct.token -= quantity;
+    }
+
+    SUPPLY.save(storage, denom, &denom_supply_struct)?;
 
     Ok(())
 }
@@ -355,6 +389,20 @@ fn update_locked(
     Ok(())
 }
 
+fn update_unlocked(
+    storage: &mut dyn Storage,
+    owner: Addr,
+    denom: String,
+    amount: Uint128,
+    add: bool,
+) -> Result<(), ContractError> {
+    Ok(())
+}
+
+// !-------
+// If the whole amount is being withdrawn then delete the mapping in LOCKED,
+// UNLOCKED, TOKENS, VTOKENS
+//  -------!
 /// Handles the withdrawal of tokens after completion of locking period.
 pub fn handle_withdraw(
     deps: DepsMut<ComdexQuery>,
@@ -389,7 +437,7 @@ pub fn handle_withdraw(
     let index = locked_vtoken[0].0;
     let vtoken = locked_vtoken[0].1.to_owned();
 
-    let PeriodWeight { weight, period } =
+    let PeriodWeight { weight, period: _ } =
         get_period(STATE.load(deps.as_ref().storage)?, locking_period.clone())?;
 
     // balance post withdrawal
@@ -405,7 +453,7 @@ pub fn handle_withdraw(
         &vtokens,
     )?;
 
-    // !------- Need to update NFT.vtokens -------!
+    // Update nft
     let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
     let denom_index: Vec<(usize, &Vtoken)> = nft
         .vtokens
@@ -846,7 +894,7 @@ mod tests {
 
     use super::*;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{coins, Addr, Api, OwnedDeps, Querier, StdError};
+    use cosmwasm_std::{coin, coins, Addr, Api, OwnedDeps, Querier, StdError};
 
     const DENOM: &str = "TKN";
 
@@ -963,6 +1011,11 @@ mod tests {
         assert_eq!(locked_tokens.len(), 1);
         assert_eq!(locked_tokens[0].amount.u128(), 100u128);
         assert_eq!(locked_tokens[0].denom, DENOM.to_string());
+
+        // Check to see the SUPPLY mapping is correct
+        let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
+        assert_eq!(supply.token, 100u128);
+        assert_eq!(supply.vtoken, 25u128);
     }
 
     #[test]
@@ -988,9 +1041,6 @@ mod tests {
             None,
         )
         .unwrap();
-
-        // forward the time, inside 1 week
-        // env.block.time.plus_seconds(100_000);
 
         let info = mock_info("owner", &coins(100, "DNM2".to_string()));
         handle_lock_nft(
@@ -1041,6 +1091,15 @@ mod tests {
         assert_eq!(locked_map[0].amount.u128(), 100u128);
         assert_eq!(locked_map[1].denom, "DNM2".to_string());
         assert_eq!(locked_map[1].amount.u128(), 100u128);
+
+        // Check correct update in SUPPLY
+        let supply = SUPPLY.load(deps.as_ref().storage, "DNM1").unwrap();
+        assert_eq!(supply.token, 100u128);
+        assert_eq!(supply.vtoken, 25u128);
+
+        let supply = SUPPLY.load(deps.as_ref().storage, "DNM2").unwrap();
+        assert_eq!(supply.token, 100u128);
+        assert_eq!(supply.vtoken, 50u128);
     }
 
     #[test]
@@ -1103,6 +1162,11 @@ mod tests {
         assert_eq!(locked_tokens.len(), 1);
         assert_eq!(locked_tokens[0].amount.u128(), 200u128);
         assert_eq!(locked_tokens[0].denom, DENOM.to_string());
+
+        // Check correct update in SUPPLY
+        let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
+        assert_eq!(supply.vtoken, 50u128);
+        assert_eq!(supply.token, 200u128);
     }
 
     #[test]
@@ -1133,7 +1197,6 @@ mod tests {
         env.block.time = env.block.time.plus_seconds(100_000);
 
         // Lock for new time period
-        let info = mock_info("owner", &coins(100, DENOM.to_string()));
         handle_lock_nft(
             deps.as_mut(),
             env.clone(),
@@ -1170,6 +1233,11 @@ mod tests {
         assert_eq!(locked_tokens.len(), 1);
         assert_eq!(locked_tokens[0].amount.u128(), 200u128);
         assert_eq!(locked_tokens[0].denom, DENOM.to_string());
+
+        // Check correct update in SUPPLY
+        let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
+        assert_eq!(supply.token, 200u128);
+        assert_eq!(supply.vtoken, 75u128);
     }
 
     #[test]
@@ -1198,86 +1266,86 @@ mod tests {
         };
     }
 
-    // #[test]
-    // fn test_withdraw() {
-    //     let mut deps = OwnedDeps {
-    //         storage: MockStorage::default(),
-    //         api: MockApi::default(),
-    //         querier: MockQuerier::default(),
-    //         custom_query_type: PhantomData,
-    //     };
-    //     let env = mock_env();
-    //     let info = mock_info("sender", &coins(0, DENOM.to_string()));
+    #[test]
+    fn withdraw() {
+        // mock values
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &[]);
 
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
 
-    //     let msg = ExecuteMsg::Lock {
-    //         app_id: 12,
-    //         locking_period: LockingPeriod::T1,
-    //         calltype: None,
-    //     };
+        // Lock tokens
+        let msg = ExecuteMsg::Lock {
+            app_id: 12,
+            locking_period: LockingPeriod::T1,
+            calltype: None,
+        };
 
-    //     let info = mock_info("user1", &coins(100, DENOM.to_string()));
+        let owner = Addr::unchecked("owner");
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
 
-    //     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
-    //     let mut vtoken = VTOKENS
-    //         .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
-    //         .unwrap();
-    //     vtoken.status = Status::Unlocked;
+        env.block.time = env.block.time.plus_seconds(imsg.t1.period);
 
-    //     assert_eq!(vtoken.token.denom, DENOM.to_string());
-    //     assert_eq!(vtoken.status, Status::Unlocked);
+        // Withdrawing 10 Tokens
+        let res = handle_withdraw(
+            deps.as_mut(),
+            env,
+            info.clone(),
+            info.funds[0].denom.clone(),
+            10,
+            LockingPeriod::T1,
+        )
+        .unwrap();
+        assert_eq!(res.messages.len(), 1);
+        assert_eq!(res.attributes.len(), 2);
+        assert_eq!(
+            res.messages[0].msg,
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: vec![coin(10, DENOM.to_string())]
+            })
+        );
 
-    //     // Withdrawing 10 Tokens
-    //     let err = withdraw(
-    //         deps.as_mut(),
-    //         &env,
-    //         info.clone(),
-    //         info.funds[0].denom.clone(),
-    //         10,
-    //         LockingPeriod::T1,
-    //     );
+        // Check correct update in LOCKED
+        // Entry from LOCKED should be removed, since the tokens have completed
+        // their locking period
+        let locked = LOCKED.load(deps.as_ref().storage, owner.clone()).unwrap();
+        assert_eq!(locked.len(), 0);
 
-    //     let mut _vtoken = VTOKENS
-    //         .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
-    //         .unwrap();
+        // Check correct update in UNLOCKED
+        let unlocked = UNLOCKED.load(deps.as_ref().storage, owner.clone()).unwrap();
+        assert_eq!(unlocked.len(), 1);
+        assert_eq!(unlocked[0].denom, DENOM.to_string());
+        assert_eq!(unlocked[0].amount.u128(), 90u128);
 
-    //     assert_eq!(
-    //         err,
-    //         Ok(Response::new()
-    //             .add_message(BankMsg::Send {
-    //                 to_address: info.sender.to_string(),
-    //                 amount: vec![_vtoken.token],
-    //             })
-    //             .add_attribute("action", "Withdraw")
-    //             .add_attribute("Recipent", info.sender.clone()))
-    //     );
+        // Check correct update in VTOKENS
+        // Should left 100 - 10 = 90 tokens
+        let vtoken = VTOKENS
+            .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
+            .unwrap();
+        assert_eq!(vtoken.len(), 1);
+        assert_eq!(vtoken[0].token.amount.u128(), 90u128);
 
-    //     // Should left 100 - 10 = 90 tokens
-    //     let mut _vtoken = VTOKENS
-    //         .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
-    //         .unwrap();
-    //     let n: u64 = 90;
-    //     assert_eq!(_vtoken.token.amount, Uint128::from(n));
+        // // Withdrawing All Tokens and Should remove the vtoken.
+        // let err = handle_withdraw(
+        //     deps.as_mut(),
+        //     env,
+        //     info.clone(),
+        //     info.funds[0].denom.clone(),
+        //     90,
+        //     LockingPeriod::T1,
+        // );
 
-    //     // Withdrawing All Tokens and Should remove the vtoken.
-    //     let err = withdraw(
-    //         deps.as_mut(),
-    //         &env,
-    //         info.clone(),
-    //         info.funds[0].denom.clone(),
-    //         90,
-    //         LockingPeriod::T1,
-    //     );
-
-    //     let mut _vtoken = VTOKENS.load(&deps.storage, (info.sender, &info.funds[0].denom));
-    //     assert_eq!(
-    //         _vtoken,
-    //         Err(StdError::NotFound {
-    //             kind: "gov_locker::state::Vtoken".to_string()
-    //         })
-    //     );
-    // }
+        // let mut _vtoken = VTOKENS.load(&deps.storage, (info.sender, &info.funds[0].denom));
+        // assert_eq!(
+        //     _vtoken,
+        //     Err(StdError::NotFound {
+        //         kind: "gov_locker::state::Vtoken".to_string()
+        //     })
+        // );
+    }
 }
