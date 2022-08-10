@@ -25,7 +25,7 @@ use comdex_bindings::{ComdexMessages, ComdexQuery};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
-    deps: DepsMut,
+    deps: DepsMut<ComdexQuery>,
     _env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
@@ -55,12 +55,11 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::VoteProposal {
-            app_id,
-            proposal_id,
-            extended_pair,
-        } => vote_proposal(deps, env, info, app_id, proposal_id, extended_pair),
-
+        // ExecuteMsg::VoteProposal {
+        //     app_id,
+        //     proposal_id,
+        //     extended_pair,
+        // } => vote_proposal(deps, env, info, app_id, proposal_id, extended_pair),
         ExecuteMsg::RaiseProposal { app_id } => raise_proposal(deps, env, info, app_id),
 
         ExecuteMsg::Bribe {
@@ -90,6 +89,14 @@ pub fn execute(
             amount,
             lockingperiod,
         } => handle_withdraw(deps, env, info, denom, amount, lockingperiod),
+
+        ExecuteMsg::TransferOwnership {
+            recipent,
+            locking_period,
+            denom
+        } => TransferOwnerShip(deps, &env, info, recipent, locking_period, denom),
+
+        _ => panic!("Not implemented"),
     }
 }
 
@@ -389,7 +396,7 @@ pub fn handle_withdraw(
     let vtoken = locked_vtoken[0].1.to_owned();
 
     let PeriodWeight { weight, period } =
-        get_period(STATE.load(deps.as_ref().storage)?, locking_period)?;
+        get_period(STATE.load(deps.as_ref().storage)?, locking_period.clone())?;
 
     // balance post withdrawal
     let token_balance = vtoken.token.amount.sub(Uint128::from(amount));
@@ -405,12 +412,12 @@ pub fn handle_withdraw(
     )?;
 
     // !------- Need to update NFT.vtokens -------!
-    let nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
+    let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
     let denom_index: Vec<(usize, &Vtoken)> = nft
         .vtokens
         .iter()
         .enumerate()
-        .filter(|el| el.1.token.denom == denom && el.1.period == locking_period)
+        .filter(|el| el.1.token.denom == denom && el.1.period == locking_period.clone())
         .collect();
 
     let index = denom_index[0].0;
@@ -672,124 +679,124 @@ pub fn rebase(
     Ok(Response::new().add_attribute("method", "voted for proposal"))
 }
 
-pub fn claimrebase(
-    deps: DepsMut<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
-    proposal_id: u64,
-) -> Result<Response, ContractError> {
-    //check if active proposal
-    let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
-    // check emission already compluted and executed
-    if !proposal.rebase_completed {
-        return Err(ContractError::CustomError {
-            val: "Rebase calculation".to_string(),
-        });
-    }
-    if proposal.voting_end_time > env.block.time.seconds() {
-        return Err(ContractError::CustomError {
-            val: "proposal in voting period".to_string(),
-        });
-    }
+// pub fn claimrebase(
+//     deps: DepsMut<ComdexQuery>,
+//     env: Env,
+//     info: MessageInfo,
+//     proposal_id: u64,
+// ) -> Result<Response, ContractError> {
+//     //check if active proposal
+//     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+//     // check emission already compluted and executed
+//     if !proposal.rebase_completed {
+//         return Err(ContractError::CustomError {
+//             val: "Rebase calculation".to_string(),
+//         });
+//     }
+//     if proposal.voting_end_time > env.block.time.seconds() {
+//         return Err(ContractError::CustomError {
+//             val: "proposal in voting period".to_string(),
+//         });
+//     }
 
-    let app_id = proposal.app_id;
-    //check governance token via app_id
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
+//     let app_id = proposal.app_id;
+//     //check governance token via app_id
+//     let app_response = query_app_exists(deps.as_ref(), app_id)?;
 
-    let gov_token_id = app_response.gov_token_id;
+//     let gov_token_id = app_response.gov_token_id;
 
-    let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
-    if gov_token_denom.is_empty() || gov_token_id == 0 {
-        return Err(ContractError::CustomError {
-            val: "Invalid gov token".to_string(),
-        });
-    }
+//     let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
+//     if gov_token_denom.is_empty() || gov_token_id == 0 {
+//         return Err(ContractError::CustomError {
+//             val: "Invalid gov token".to_string(),
+//         });
+//     }
 
-    let total_weight = get_token_supply(deps.as_ref(), app_id, gov_token_id)?;
-    if total_weight == 0 {
-        return Err(ContractError::CustomError {
-            val: "Current Circulating Supply is 0".to_string(),
-        });
-    }
-    let total_vtoken_weight = SUPPLY.load(deps.storage, &gov_token_denom)?;
-    let rebase_amount = proposal.rebase_distributed;
-    let v_token_balance = VTOKENS
-        .load(deps.storage, (info.sender, &gov_token_denom))?
-        .vtoken
-        .amount;
-    let rebase_claimable = (v_token_balance.u128().div(total_vtoken_weight.vtoken)) * rebase_amount;
+//     let total_weight = get_token_supply(deps.as_ref(), app_id, gov_token_id)?;
+//     if total_weight == 0 {
+//         return Err(ContractError::CustomError {
+//             val: "Current Circulating Supply is 0".to_string(),
+//         });
+//     }
+//     let total_vtoken_weight = SUPPLY.load(deps.storage, &gov_token_denom)?;
+//     let rebase_amount = proposal.rebase_distributed;
+//     let v_token_balance = VTOKENS
+//         .load(deps.storage, (info.sender, &gov_token_denom))?
+//         .vtoken
+//         .amount;
+//     let rebase_claimable = (v_token_balance.u128().div(total_vtoken_weight.vtoken)) * rebase_amount;
 
-    PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
-    Ok(Response::new().add_attribute("method", "voted for proposal"))
-}
+//     PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
+//     Ok(Response::new().add_attribute("method", "voted for proposal"))
+// }
 
-pub fn vote_proposal(
-    deps: DepsMut<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
-    app_id: u64,
-    proposal_id: u64,
-    extended_pair: u64,
-) -> Result<Response, ContractError> {
-    let has_voted = VOTERS_VOTE
-        .load(deps.storage, (info.sender.clone(), proposal_id))
-        .unwrap_or_default();
-    if has_voted {
-        return Err(ContractError::CustomError {
-            val: "Already voted for the proposal".to_string(),
-        });
-    }
-    //check if active proposal
-    let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
-    if proposal.voting_end_time < env.block.time.seconds() {
-        return Err(ContractError::CustomError {
-            val: "Proposal Voting Period Ended".to_string(),
-        });
-    }
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
+// pub fn vote_proposal(
+//     deps: DepsMut<ComdexQuery>,
+//     env: Env,
+//     info: MessageInfo,
+//     app_id: u64,
+//     proposal_id: u64,
+//     extended_pair: u64,
+// ) -> Result<Response, ContractError> {
+//     let has_voted = VOTERS_VOTE
+//         .load(deps.storage, (info.sender.clone(), proposal_id))
+//         .unwrap_or_default();
+//     if has_voted {
+//         return Err(ContractError::CustomError {
+//             val: "Already voted for the proposal".to_string(),
+//         });
+//     }
+//     //check if active proposal
+//     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+//     if proposal.voting_end_time < env.block.time.seconds() {
+//         return Err(ContractError::CustomError {
+//             val: "Proposal Voting Period Ended".to_string(),
+//         });
+//     }
+//     let app_response = query_app_exists(deps.as_ref(), app_id)?;
 
-    let extended_pairs = proposal.extended_pair.clone();
-    let mut found_pair = false;
-    for i in 0..extended_pairs.len() {
-        if extended_pairs[i] == extended_pair {
-            found_pair = true;
-        }
-    }
-    if !found_pair {
-        return Err(ContractError::CustomError {
-            val: "Invalid Extended pair".to_string(),
-        });
-    }
-    //balance of owner for the for denom for voting
+//     let extended_pairs = proposal.extended_pair.clone();
+//     let mut found_pair = false;
+//     for i in 0..extended_pairs.len() {
+//         if extended_pairs[i] == extended_pair {
+//             found_pair = true;
+//         }
+//     }
+//     if !found_pair {
+//         return Err(ContractError::CustomError {
+//             val: "Invalid Extended pair".to_string(),
+//         });
+//     }
+//     //balance of owner for the for denom for voting
 
-    let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
-    if gov_token_denom.is_empty() || app_response.gov_token_id == 0 {
-        return Err(ContractError::CustomError {
-            val: "Gov token not found for the app".to_string(),
-        });
-    }
-    let vote_power = VTOKENS.load(deps.storage, (info.sender.clone(), &gov_token_denom))?;
-    // get token owner balance
-    proposal.total_voted_weight += vote_power.vtoken.amount.u128();
-    let proposal_vote = PROPOSALVOTE
-        .load(deps.storage, (proposal_id, extended_pair))
-        .unwrap_or_default();
-    PROPOSALVOTE.save(
-        deps.storage,
-        (proposal_id, extended_pair),
-        &(vote_power.vtoken.amount + proposal_vote),
-    )?;
-    PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
-    let vote = Vote {
-        app_id: app_id,
-        extended_pair: extended_pair,
-        vote_weight: vote_power.vtoken.amount.u128(),
-        bribe_claimed: false,
-    };
-    VOTERSPROPOSAL.save(deps.storage, (info.sender, proposal_id), &vote)?;
+//     let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
+//     if gov_token_denom.is_empty() || app_response.gov_token_id == 0 {
+//         return Err(ContractError::CustomError {
+//             val: "Gov token not found for the app".to_string(),
+//         });
+//     }
+//     let vote_power = VTOKENS.load(deps.storage, (info.sender.clone(), &gov_token_denom))?;
+//     // get token owner balance
+//     proposal.total_voted_weight += vote_power.vtoken.amount.u128();
+//     let proposal_vote = PROPOSALVOTE
+//         .load(deps.storage, (proposal_id, extended_pair))
+//         .unwrap_or_default();
+//     PROPOSALVOTE.save(
+//         deps.storage,
+//         (proposal_id, extended_pair),
+//         &(vote_power.vtoken.amount + proposal_vote),
+//     )?;
+//     PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
+//     let vote = Vote {
+//         app_id: app_id,
+//         extended_pair: extended_pair,
+//         vote_weight: vote_power.vtoken.amount.u128(),
+//         bribe_claimed: false,
+//     };
+//     VOTERSPROPOSAL.save(deps.storage, (info.sender, proposal_id), &vote)?;
 
-    Ok(Response::new().add_attribute("method", "voted for proposal"))
-}
+//     Ok(Response::new().add_attribute("method", "voted for proposal"))
+// }
 
 pub fn raise_proposal(
     deps: DepsMut<ComdexQuery>,
@@ -847,19 +854,19 @@ pub fn TransferOwnerShip(
     recipent:Addr,
     locking_period:LockingPeriod,
     denom:String
-){
+)-> Result<Response, ContractError>{
 
-let sender_vtokens = VTOKENS.load(deps.storage, (info.sender.clone(),&denom)).unwrap();
+let mut sender_vtokens = VTOKENS.load(deps.storage, (info.sender.clone(),&denom)).unwrap();
 
-let sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
+let mut sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
 .iter()
 .enumerate()
 .filter(|s| s.1.period == locking_period)
 .collect();
 
-let reciver_vtokens = VTOKENS.load(deps.storage, (recipent.clone(),&denom)).unwrap();
+let mut reciver_vtokens = VTOKENS.load(deps.storage, (recipent.clone(),&denom)).unwrap();
 
-let reciver_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
+let mut reciver_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
 .iter()
 .enumerate()
 .filter(|s| s.1.period == locking_period)
@@ -867,19 +874,20 @@ let reciver_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
 
 if reciver_vtoken.is_empty(){
      let res =Vtoken{
-        token:sender_vtoken[0].1.token,
-        vtoken: sender_vtoken[0].1.vtoken,
-        period: sender_vtoken[0].1.period,
+        token:sender_vtoken[0].1.token.clone(),
+        vtoken: sender_vtoken[0].1.vtoken.clone(),
+        period: sender_vtoken[0].1.period.clone(),
         start_time: sender_vtoken[0].1.start_time,
         end_time: sender_vtoken[0].1.end_time,
-        status: sender_vtoken[0].1.status,
+        status: sender_vtoken[0].1.status.clone(),
     };
     reciver_vtokens.push(res);
-
 }else{
     reciver_vtoken[0].1.token.amount += sender_vtoken[0].1.token.amount;
     reciver_vtoken[0].1.vtoken.amount += sender_vtoken[0].1.vtoken.amount;
     sender_vtoken.remove(0);
 }
+Ok(Response::new()
+.add_attribute("action","transferOwnership"))
 }
 

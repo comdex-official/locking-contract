@@ -53,6 +53,11 @@ pub enum ExecuteMsg {
         amount: u64,
         lockingperiod: LockingPeriod,
     },
+    TransferOwnership{
+        recipent:Addr,
+        locking_period:LockingPeriod,
+        denom:String
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -66,13 +71,6 @@ pub enum QueryMsg {
     /// Query the tokens with Unlocked status. If denom is supplied, then only
     /// query for a specific denomination, else return all tokens.
     UnlockedTokens {
-        address: Option<String>,
-        denom: Option<String>,
-    },
-
-    /// Query the tokens with Unlocking status. If denom is supplied, then only
-    /// query for a specific denomination, else return all tokens.
-    UnlockingTokens {
         address: Option<String>,
         denom: Option<String>,
     },
