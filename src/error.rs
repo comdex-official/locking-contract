@@ -13,13 +13,10 @@ pub enum ContractError {
     CustomError { val: String },
     // Add any other custom errors you like here.
     // Look at https://docs.rs/thiserror/1.0.21/thiserror/ for details.
-   
-
     #[error("{msg:?}")]
     NotFound { msg: String },
 
-
-    #[error("Insufficient funds were sent: {funds}")]
+    #[error("Insufficient funds: {funds}")]
     InsufficientFunds { funds: u128 },
 
     #[error("The locking period is still active.")]
@@ -33,6 +30,4 @@ pub enum ContractError {
 
     #[error("The token is not in Locked state")]
     NotLocked {},
-
-
 }
