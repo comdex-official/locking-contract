@@ -70,13 +70,6 @@ pub enum QueryMsg {
         denom: Option<String>,
     },
 
-    /// Query the tokens with Unlocking status. If denom is supplied, then only
-    /// query for a specific denomination, else return all tokens.
-    UnlockingTokens {
-        address: Option<String>,
-        denom: Option<String>,
-    },
-
     /// Query the tokens with Locked status. If denom is supplied, the only
     /// query for a specific denomination, else return all tokens.
     LockedTokens {

@@ -1,26 +1,28 @@
 // !------- IssuedVtokens query not implemented-------!
 
+use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Deps, Env, MessageInfo, StdError, StdResult,
 };
 
 use crate::msg::{
     IssuedNftResponse, IssuedVtokensResponse, LockedTokensResponse, QueryMsg,
-    UnlockedTokensResponse, UnlockingTokensResponse,VestedTokens
+    UnlockedTokensResponse, UnlockingTokensResponse,
 };
-use crate::state::{Status, LOCKED, TOKENS, UNLOCKED, UNLOCKING, VTOKENS};
+use crate::state::{Status, LOCKED, TOKENS, UNLOCKED, VTOKENS};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, env: Env, info: MessageInfo, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(
+    deps: Deps<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    msg: QueryMsg,
+) -> StdResult<Binary> {
     match msg {
         QueryMsg::IssuedNft { address } => to_binary(&query_issued_nft(deps, env, info, address)?),
 
         QueryMsg::UnlockedTokens { address, denom } => {
             to_binary(&query_unlocked_tokens(deps, env, info, address, denom)?)
-        }
-
-        QueryMsg::UnlockingTokens { address, denom } => {
-            to_binary(&query_unlocking_tokens(deps, env, info, address, denom)?)
         }
 
         QueryMsg::LockedTokens { address, denom } => {
@@ -30,11 +32,13 @@ pub fn query(deps: Deps, env: Env, info: MessageInfo, msg: QueryMsg) -> StdResul
         QueryMsg::IssuedVtokens { address } => {
             to_binary(&query_issued_vtokens(deps, env, info, address)?)
         }
+
+        _ => panic!("Not implemented"),
     }
 }
 
 pub fn query_issued_nft(
-    deps: Deps,
+    deps: Deps<ComdexQuery>,
     _env: Env,
     _info: MessageInfo,
     address: String,
@@ -51,40 +55,47 @@ pub fn query_issued_nft(
 }
 
 pub fn query_unlocked_tokens(
-    deps: Deps,
+    deps: Deps<ComdexQuery>,
     _env: Env,
     info: MessageInfo,
     address: Option<String>,
     denom: Option<String>,
 ) -> StdResult<UnlockedTokensResponse> {
     // set `owner` for querying tokens
-    let owner: Addr;
-    if let Some(val) = address {
-        owner = deps.api.addr_validate(&val)?;
+    let owner = if let Some(val) = address {
+        deps.api.addr_validate(&val)?
     } else {
-        owner = info.sender;
+        info.sender
     };
 
     // result contains either a single token for the given denom or all
     // unlocked tokens for the given owner
-    let vtokens: Vec<Coin>;
-    if let Some(denom) = denom {
-        let res = VTOKENS.load(deps.storage, (owner, &denom))?;
-        if res.status != Status::Unlocked {
-            return Err(StdError::GenericErr {
-                msg: String::from("No unlocked tokens for given denom"),
-            });
-        }
-        vtokens = vec![res.vtoken];
-    } else {
-        vtokens = UNLOCKED.load(deps.storage, owner)?;
-    }
+    let tokens = UNLOCKED.may_load(deps.storage, owner)?;
 
-    Ok(UnlockedTokensResponse { tokens: vtokens })
+    let mut unlocking_tokens = if let Some(val) = tokens {
+        val
+    } else {
+        return Err(StdError::NotFound {
+            kind: "No unlocked tokens".into(),
+        });
+    };
+
+    unlocking_tokens = if let Some(val) = denom {
+        unlocking_tokens
+            .into_iter()
+            .filter(|el| el.denom == val)
+            .collect()
+    } else {
+        unlocking_tokens
+    };
+
+    Ok(UnlockedTokensResponse {
+        tokens: unlocking_tokens,
+    })
 }
 
 pub fn query_locked_tokens(
-    deps: Deps,
+    deps: Deps<ComdexQuery>,
     _env: Env,
     info: MessageInfo,
     address: Option<String>,
@@ -100,57 +111,32 @@ pub fn query_locked_tokens(
 
     // result contains either a single token for the given denom or all
     // locked tokens for the given owner
-    let vtokens: Vec<Coin>;
-    if let Some(denom) = denom {
-        let res = VTOKENS.load(deps.storage, (owner, &denom))?;
-        if res.status != Status::Locked {
-            return Err(StdError::GenericErr {
-                msg: String::from("No locked tokens for given denom"),
-            });
-        }
-        vtokens = vec![res.vtoken];
-    } else {
-        vtokens = LOCKED.load(deps.storage, owner)?;
-    }
+    let tokens = LOCKED.may_load(deps.storage, owner)?;
 
-    Ok(LockedTokensResponse { tokens: vtokens })
-}
-
-pub fn query_unlocking_tokens(
-    deps: Deps,
-    _env: Env,
-    info: MessageInfo,
-    address: Option<String>,
-    denom: Option<String>,
-) -> StdResult<UnlockingTokensResponse> {
-    // set `owner` for querying tokens
-    let owner: Addr;
-    if let Some(val) = address {
-        owner = deps.api.addr_validate(&val)?;
+    let mut locked_tokens = if let Some(val) = tokens {
+        val
     } else {
-        owner = info.sender;
+        return Err(StdError::NotFound {
+            kind: "No locked tokens".into(),
+        });
     };
 
-    // result contains either a single token for the given denom or all
-    // locked tokens for the given owner
-    let vtokens: Vec<Coin>;
-    if let Some(denom) = denom {
-        let res = VTOKENS.load(deps.storage, (owner, &denom))?;
-        if res.status != Status::Unlocking {
-            return Err(StdError::GenericErr {
-                msg: String::from("No unlocking tokens for given denom"),
-            });
-        }
-        vtokens = vec![res.vtoken];
+    locked_tokens = if let Some(val) = denom {
+        locked_tokens
+            .into_iter()
+            .filter(|el| el.denom == val)
+            .collect()
     } else {
-        vtokens = UNLOCKING.load(deps.storage, owner)?;
-    }
+        locked_tokens
+    };
 
-    Ok(UnlockingTokensResponse { tokens: vtokens })
+    Ok(LockedTokensResponse {
+        tokens: locked_tokens,
+    })
 }
 
 pub fn query_issued_vtokens(
-    deps: Deps,
+    deps: Deps<ComdexQuery>,
     env: Env,
     info: MessageInfo,
     address: Option<String>,
@@ -166,86 +152,92 @@ mod tests {
     use crate::contract::{execute, instantiate};
     use crate::msg::{ExecuteMsg, InstantiateMsg};
     use crate::state::{LockingPeriod, PeriodWeight};
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coins, Decimal, Uint128};
+    use comdex_bindings::ComdexQuery;
+    use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
+    use cosmwasm_std::{coins, Decimal, OwnedDeps, Uint128};
+    use std::marker::PhantomData;
 
     const DENOM: &str = "TKN";
 
-    /// Returns default InstantiateMsg with each value in seconds.
-    /// - t1 is 1 week (7*24*60*60), similarly, t2 is 2 weeks, t3 is 3 weeks
-    /// and t4 is 4 weeks.
-    /// - unlock_period is 1 week
-    fn init_msg() -> InstantiateMsg {
-        InstantiateMsg {
-            t1: PeriodWeight {
-                period: 604_800,
-                weight: Decimal::from_atomics(Uint128::new(25), 2).unwrap(),
-            },
-            t2: PeriodWeight {
-                period: 1_209_600,
-                weight: Decimal::from_atomics(Uint128::new(50), 2).unwrap(),
-            },
-            t3: PeriodWeight {
-                period: 1_814_400,
-                weight: Decimal::from_atomics(Uint128::new(75), 2).unwrap(),
-            },
-            t4: PeriodWeight {
-                period: 2_419_200,
-                weight: Decimal::from_atomics(Uint128::new(100), 2).unwrap(),
-            },
-            unlock_period: 604_800,
+    fn mock_dependencies() -> OwnedDeps<MockStorage, MockApi, MockQuerier, ComdexQuery> {
+        OwnedDeps {
+            storage: MockStorage::default(),
+            api: MockApi::default(),
+            querier: MockQuerier::default(),
+            custom_query_type: PhantomData,
         }
     }
 
     #[test]
-    fn test_get_unlocked_tokens() {
+    fn unlocked_tokens() {
         let mut deps = mock_dependencies();
         let env = mock_env();
-        let info = mock_info("sender", &coins(0, DENOM.to_string()));
+        let info = mock_info("owner", &coins(0, DENOM.to_string()));
 
-        let imsg = init_msg();
-        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+        let owner = Addr::unchecked("owner");
 
-        let msg = ExecuteMsg::Lock {
-            app_id: 12,
-            locking_period: LockingPeriod::T1,
-        };
-
-        let info = mock_info("user1", &coins(100, DENOM.to_string()));
-
-        execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
-
-        let mut vtoken = VTOKENS
-            .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
-            .unwrap();
-        vtoken.status = Status::Unlocked;
-        assert_eq!(vtoken.token.denom, DENOM.to_string());
-        assert_eq!(vtoken.status, Status::Unlocked);
-        VTOKENS
-            .save(
-                &mut deps.storage,
-                (info.sender.clone(), &info.funds[0].denom),
-                &vtoken,
-            )
-            .unwrap();
-        let vtoken = VTOKENS
-            .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
+        // Save some tokens in UNLOCKED
+        let unlocked_tokens = vec![
+            Coin {
+                amount: Uint128::from(1000u128),
+                denom: "DNM1".to_string(),
+            },
+            Coin {
+                amount: Uint128::from(2000u128),
+                denom: "DNM2".to_string(),
+            },
+        ];
+        UNLOCKED
+            .save(deps.as_mut().storage, owner.clone(), &unlocked_tokens)
             .unwrap();
 
+        // Query unlocked tokens for specific denom
         let res = query_unlocked_tokens(
             deps.as_ref(),
-            env,
+            env.clone(),
             info.clone(),
-            Option::Some(info.sender.to_string()),
-            Option::Some(info.funds[0].denom.to_string()),
+            Some(owner.to_string()),
+            Some("DNM1".to_string()),
         )
         .unwrap();
-        // Should get vtokens
-        assert_eq!(
-            res,
-            UnlockedTokensResponse {
-                tokens: vec![vtoken.vtoken]
-            }
-        );
+
+        assert_eq!(res.tokens.len(), 1);
+        assert_eq!(res.tokens[0].amount.u128(), 1000);
+        assert_eq!(res.tokens[0].denom, "DNM1".to_string());
+
+        // Query all tokens
+        let res =
+            query_unlocked_tokens(deps.as_ref(), env.clone(), info.clone(), None, None).unwrap();
+        assert_eq!(res.tokens.len(), 2);
+        assert_eq!(res.tokens[0].denom, "DNM1".to_string());
+        assert_eq!(res.tokens[0].amount.u128(), 1000u128);
+        assert_eq!(res.tokens[1].denom, "DNM2".to_string());
+        assert_eq!(res.tokens[1].amount.u128(), 2000u128);
+    }
+
+    #[test]
+    fn locked_tokens() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &coins(0, "DNM1".to_string()));
+
+        let owner = Addr::unchecked("owner");
+
+        let locked_tokens = coins(1000, "DNM1".to_string());
+        LOCKED
+            .save(deps.as_mut().storage, owner.clone(), &locked_tokens)
+            .unwrap();
+
+        let res = query_locked_tokens(
+            deps.as_ref(),
+            env.clone(),
+            info.clone(),
+            Some(owner.to_string()),
+            Some("DNM1".into()),
+        )
+        .unwrap();
+        assert_eq!(res.tokens.len(), 1);
+        assert_eq!(res.tokens[0].amount.u128(), 1000);
+        assert_eq!(res.tokens[0].denom, "DNM1".to_string());
     }
 }
