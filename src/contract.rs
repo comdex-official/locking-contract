@@ -394,20 +394,6 @@ fn update_locked(
     Ok(())
 }
 
-fn update_unlocked(
-    storage: &mut dyn Storage,
-    owner: Addr,
-    denom: String,
-    amount: Uint128,
-    add: bool,
-) -> Result<(), ContractError> {
-    Ok(())
-}
-
-// !-------
-// If the whole amount is being withdrawn then delete the mapping in LOCKED,
-// UNLOCKED, TOKENS, VTOKENS, if present.
-//  -------!
 /// Handles the withdrawal of tokens after completion of locking period.
 pub fn handle_withdraw(
     deps: DepsMut<ComdexQuery>,
@@ -418,9 +404,7 @@ pub fn handle_withdraw(
     locking_period: LockingPeriod,
 ) -> Result<Response, ContractError> {
     // Load the token
-    let mut vtokens = VTOKENS
-        .load(deps.storage, (info.sender.clone(), &denom))
-        .unwrap();
+    let mut vtokens = VTOKENS.load(deps.storage, (info.sender.clone(), &denom))?;
 
     // Retrive the tokens with the given locking period
     let vtoken: Vec<(usize, &Vtoken)> = vtokens
@@ -1410,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn withdraw() {
+    fn withdraw_basic_functionality() {
         // mock values
         let mut deps = mock_dependencies();
         let mut env = mock_env();
@@ -1519,6 +1503,138 @@ mod tests {
             .unwrap_err();
         match res {
             StdError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn withdraw_no_vtokens() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        let res = handle_withdraw(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            DENOM.to_string(),
+            100u64,
+            LockingPeriod::T1,
+        )
+        .unwrap_err();
+        match res {
+            ContractError::Std(StdError::NotFound { .. }) => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn withdraw_not_unlocked() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        // Lock tokens
+        let msg = ExecuteMsg::Lock {
+            app_id: 12,
+            locking_period: LockingPeriod::T1,
+            calltype: None,
+        };
+
+        let owner = Addr::unchecked("owner");
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+
+        let owner = Addr::unchecked("onwer");
+
+        let res = handle_withdraw(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            DENOM.to_string(),
+            120,
+            LockingPeriod::T1,
+        )
+        .unwrap_err();
+        match res {
+            ContractError::NotUnlocked { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn withdraw_period_not_locked() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        // Lock tokens
+        let msg = ExecuteMsg::Lock {
+            app_id: 12,
+            locking_period: LockingPeriod::T1,
+            calltype: None,
+        };
+
+        let owner = Addr::unchecked("owner");
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+
+        let owner = Addr::unchecked("onwer");
+
+        let res = handle_withdraw(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            DENOM.to_string(),
+            10,
+            LockingPeriod::T2,
+        )
+        .unwrap_err();
+        match res {
+            ContractError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn withdraw_denom_not_locked() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        // Lock tokens
+        let msg = ExecuteMsg::Lock {
+            app_id: 12,
+            locking_period: LockingPeriod::T1,
+            calltype: None,
+        };
+
+        let owner = Addr::unchecked("owner");
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+
+        let owner = Addr::unchecked("onwer");
+
+        let res = handle_withdraw(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            "DNM1".to_string(),
+            10,
+            LockingPeriod::T1,
+        )
+        .unwrap_err();
+        match res {
+            ContractError::Std(StdError::NotFound { .. }) => {}
             e => panic!("{:?}", e),
         };
     }
