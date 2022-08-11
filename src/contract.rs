@@ -91,12 +91,11 @@ pub fn execute(
             lockingperiod,
         } => handle_withdraw(deps, env, info, denom, amount, lockingperiod),
 
-        ExecuteMsg::TransferOwnership {
-            recipent,
-            locking_period,
-            denom,
-        } => handle_transfer_ownership(deps, env, info, recipent, locking_period, denom),
-
+        // ExecuteMsg::TransferOwnership {
+        //     recipent,
+        //     locking_period,
+        //     denom,
+        // } => handle_transfer_ownership(deps, env, info, recipent, locking_period, denom),
         _ => panic!("Not implemented"),
     }
 }
@@ -458,7 +457,7 @@ pub fn handle_withdraw(
 
     // balance post withdrawal
     let token_balance = vtoken.token.amount.sub(Uint128::from(amount));
-    let vtoken_balance = Uint128::from(amount) * weight;
+    let vtoken_balance = vtoken.vtoken.amount.sub(Uint128::from(amount) * weight);
     // Update token balance
     if token_balance.is_zero() {
         vtokens.remove(index);
@@ -468,28 +467,40 @@ pub fn handle_withdraw(
         vtokens[index].status = Status::Unlocked;
     }
     // Save the changes to VTOKENS
-    VTOKENS.save(
-        deps.storage,
-        (info.sender.clone(), &info.funds[0].denom),
-        &vtokens,
-    )?;
+    if vtokens.len() == 0 {
+        VTOKENS.remove(deps.storage, (info.sender.clone(), &info.funds[0].denom));
+    } else {
+        VTOKENS.save(
+            deps.storage,
+            (info.sender.clone(), &info.funds[0].denom),
+            &vtokens,
+        )?;
+    }
 
     // Update LOCKED
-    let mut locked_map = LOCKED.load(deps.as_ref().storage, info.sender.clone())?;
-    let locked_token: Vec<(usize, &Coin)> = locked_map
-        .iter()
-        .enumerate()
-        .filter(|el| el.1.denom == denom)
-        .collect();
+    // It is possible that there are no locked tokens for the given owner
+    let denom_locked_map = LOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
+    if let Some(mut locked_map) = denom_locked_map {
+        let locked_token: Vec<(usize, &Coin)> = locked_map
+            .iter()
+            .enumerate()
+            .filter(|el| el.1.denom == denom)
+            .collect();
 
-    let index = locked_token[0].0;
-    locked_map[index].amount -= Uint128::from(amount);
-    if locked_map[index].amount.is_zero() {
-        locked_map.remove(index);
-    }
-    LOCKED.save(deps.storage, info.sender.clone(), &locked_map)?;
+        // If locked tokens are present for the given denom only then update
+        if !locked_token.is_empty() {
+            let index = locked_token[0].0;
+            locked_map[index].amount -= vtoken.token.amount;
+            if locked_map[index].amount.is_zero() {
+                locked_map.remove(index);
+            }
+            LOCKED.save(deps.storage, info.sender.clone(), &locked_map)?;
+        }
+    };
 
     // Update UNLOCKED
+    // It is possible that the UNLOCKED map hasn't been updated as yet, even though
+    // the tokens have completed locking_period
     let unlocked_map = UNLOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
     match unlocked_map {
         Some(mut unlocked_tokens) => {
@@ -575,51 +586,51 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
     })
 }
 
-pub fn handle_transfer_ownership(
-    deps: DepsMut<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
-    recipent: Addr,
-    locking_period: LockingPeriod,
-    denom: String,
-) -> Result<Response, ContractError> {
-    let mut sender_vtokens = VTOKENS
-        .load(deps.storage, (info.sender.clone(), &denom))
-        .unwrap();
+// pub fn handle_transfer_ownership(
+//     deps: DepsMut<ComdexQuery>,
+//     env: Env,
+//     info: MessageInfo,
+//     recipent: Addr,
+//     locking_period: LockingPeriod,
+//     denom: String,
+// ) -> Result<Response, ContractError> {
+//     let mut sender_vtokens = VTOKENS
+//         .load(deps.storage, (info.sender.clone(), &denom))
+//         .unwrap();
 
-    let mut sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
-        .iter()
-        .enumerate()
-        .filter(|s| s.1.period == locking_period)
-        .collect();
+//     let mut sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
+//         .iter()
+//         .enumerate()
+//         .filter(|s| s.1.period == locking_period)
+//         .collect();
 
-    let mut reciver_vtokens = VTOKENS
-        .load(deps.storage, (recipent.clone(), &denom))
-        .unwrap();
+//     let mut reciver_vtokens = VTOKENS
+//         .load(deps.storage, (recipent.clone(), &denom))
+//         .unwrap();
 
-    let mut reciver_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
-        .iter()
-        .enumerate()
-        .filter(|s| s.1.period == locking_period)
-        .collect();
+//     let mut reciver_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
+//         .iter()
+//         .enumerate()
+//         .filter(|s| s.1.period == locking_period)
+//         .collect();
 
-    if reciver_vtoken.is_empty() {
-        let res = Vtoken {
-            token: sender_vtoken[0].1.token.clone(),
-            vtoken: sender_vtoken[0].1.vtoken.clone(),
-            period: sender_vtoken[0].1.period.clone(),
-            start_time: sender_vtoken[0].1.start_time,
-            end_time: sender_vtoken[0].1.end_time,
-            status: sender_vtoken[0].1.status.clone(),
-        };
-        reciver_vtokens.push(res);
-    } else {
-        reciver_vtoken[0].1.token.amount += sender_vtoken[0].1.token.amount;
-        reciver_vtoken[0].1.vtoken.amount += sender_vtoken[0].1.vtoken.amount;
-        sender_vtoken.remove(0);
-    }
-    Ok(Response::new().add_attribute("action", "transferOwnership"))
-}
+//     if reciver_vtoken.is_empty() {
+//         let res = Vtoken {
+//             token: sender_vtoken[0].1.token.clone(),
+//             vtoken: sender_vtoken[0].1.vtoken.clone(),
+//             period: sender_vtoken[0].1.period.clone(),
+//             start_time: sender_vtoken[0].1.start_time,
+//             end_time: sender_vtoken[0].1.end_time,
+//             status: sender_vtoken[0].1.status.clone(),
+//         };
+//         reciver_vtokens.push(res);
+//     } else {
+//         reciver_vtoken[0].1.token.amount += sender_vtoken[0].1.token.amount;
+//         reciver_vtoken[0].1.vtoken.amount += sender_vtoken[0].1.vtoken.amount;
+//         sender_vtoken.remove(0);
+//     }
+//     Ok(Response::new().add_attribute("action", "transferOwnership"))
+// }
 
 pub fn bribe_proposal(
     deps: DepsMut<ComdexQuery>,
@@ -1420,12 +1431,18 @@ mod tests {
 
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
-        env.block.time = env.block.time.plus_seconds(imsg.t1.period);
+        // Check correct update in LOCKED
+        let locked_tokens = LOCKED.load(deps.as_ref().storage, owner.clone()).unwrap();
+        assert_eq!(locked_tokens.len(), 1);
+        assert_eq!(locked_tokens[0].amount.u128(), 100u128);
+        assert_eq!(locked_tokens[0].denom, DENOM.to_string());
+
+        env.block.time = env.block.time.plus_seconds(imsg.t1.period + 1u64);
 
         // Withdrawing 10 Tokens
         let res = handle_withdraw(
             deps.as_mut(),
-            env,
+            env.clone(),
             info.clone(),
             info.funds[0].denom.clone(),
             10,
@@ -1454,6 +1471,11 @@ mod tests {
         assert_eq!(unlocked[0].denom, DENOM.to_string());
         assert_eq!(unlocked[0].amount.u128(), 90u128);
 
+        // Just a check if the order matters with Decimal
+        let vtoken_balance1 = Uint128::from(90u64) * imsg.t1.weight;
+        let vtoken_balance2 = imsg.t1.weight * Uint128::from(90u64);
+        assert_eq!(vtoken_balance1, vtoken_balance2);
+
         // Check correct update in VTOKENS
         // Should left 100 - 10 = 90 tokens
         let vtoken = VTOKENS
@@ -1461,23 +1483,43 @@ mod tests {
             .unwrap();
         assert_eq!(vtoken.len(), 1);
         assert_eq!(vtoken[0].token.amount.u128(), 90u128);
+        let vtoken_balance = Uint128::from(25u64).sub(Uint128::from(10u64) * imsg.t1.weight);
+        assert_eq!(vtoken[0].vtoken.amount.u128(), vtoken_balance.u128());
+        assert_eq!(vtoken[0].status, Status::Unlocked);
 
-        // // Withdrawing All Tokens and Should remove the vtoken.
-        // let err = handle_withdraw(
-        //     deps.as_mut(),
-        //     env,
-        //     info.clone(),
-        //     info.funds[0].denom.clone(),
-        //     90,
-        //     LockingPeriod::T1,
-        // );
+        // Check correct update in nft
+        let nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
+        assert_eq!(nft.vtokens.len(), 1);
+        assert_eq!(nft.vtokens[0].token.amount.u128(), 90u128);
+        assert_eq!(nft.vtokens[0].vtoken.amount.u128(), vtoken_balance.u128());
+        assert_eq!(nft.vtokens[0].status, Status::Unlocked);
 
-        // let mut _vtoken = VTOKENS.load(&deps.storage, (info.sender, &info.funds[0].denom));
-        // assert_eq!(
-        //     _vtoken,
-        //     Err(StdError::NotFound {
-        //         kind: "gov_locker::state::Vtoken".to_string()
-        //     })
-        // );
+        // Withdrawing All Tokens and Should remove the vtoken.
+        let res = handle_withdraw(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            info.funds[0].denom.clone(),
+            90,
+            LockingPeriod::T1,
+        )
+        .unwrap();
+        assert_eq!(res.messages.len(), 1);
+        assert_eq!(res.attributes.len(), 2);
+        assert_eq!(
+            res.messages[0].msg,
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: vec![coin(90, DENOM.to_string())]
+            })
+        );
+
+        let res = VTOKENS
+            .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
+            .unwrap_err();
+        match res {
+            StdError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
     }
 }
