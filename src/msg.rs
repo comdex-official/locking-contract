@@ -51,11 +51,12 @@ pub enum ExecuteMsg {
         amount: u64,
         lockingperiod: LockingPeriod,
     },
-    TransferOwnership{
-        recipent:Addr,
-        locking_period:LockingPeriod,
-        denom:String
-    }
+    TransferOwnership {
+        recipent: String,
+        locking_period: LockingPeriod,
+        denom: String,
+        calltype: Option<CallType>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

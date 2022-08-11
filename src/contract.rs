@@ -5,6 +5,7 @@ use cosmwasm_std::{
     Response, Storage, Timestamp, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
+use schemars::_serde_json::de;
 use std::ops::{AddAssign, Div, Mul, Sub, SubAssign};
 
 use crate::error::ContractError;
@@ -91,11 +92,12 @@ pub fn execute(
             lockingperiod,
         } => handle_withdraw(deps, env, info, denom, amount, lockingperiod),
 
-        // ExecuteMsg::TransferOwnership {
-        //     recipent,
-        //     locking_period,
-        //     denom,
-        // } => handle_transfer_ownership(deps, env, info, recipent, locking_period, denom),
+        ExecuteMsg::TransferOwnership {
+            recipent,
+            locking_period,
+            denom,
+            calltype,
+        } => handle_transfer_ownership(deps, env, info, recipent, locking_period, denom, calltype),
         _ => panic!("Not implemented"),
     }
 }
@@ -570,51 +572,118 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
     })
 }
 
-// pub fn handle_transfer_ownership(
-//     deps: DepsMut<ComdexQuery>,
-//     env: Env,
-//     info: MessageInfo,
-//     recipent: Addr,
-//     locking_period: LockingPeriod,
-//     denom: String,
-// ) -> Result<Response, ContractError> {
-//     let mut sender_vtokens = VTOKENS
-//         .load(deps.storage, (info.sender.clone(), &denom))
-//         .unwrap();
+// !------- Need to update LOCKED, UNLOCKED, and sender NFT -------!
+/// Handles the transfer of vtokens between users
+pub fn handle_transfer_ownership(
+    deps: DepsMut<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    recipient: String,
+    locking_period: LockingPeriod,
+    denom: String,
+    calltype: Option<CallType>,
+) -> Result<Response, ContractError> {
+    let recipient = deps.api.addr_validate(&recipient)?;
 
-//     let mut sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
-//         .iter()
-//         .enumerate()
-//         .filter(|s| s.1.period == locking_period)
-//         .collect();
+    // Load the denom that needs to be transfered
+    let mut sender_vtokens = VTOKENS.load(deps.storage, (info.sender.clone(), &denom))?;
 
-//     let mut reciver_vtokens = VTOKENS
-//         .load(deps.storage, (recipent.clone(), &denom))
-//         .unwrap();
+    let sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
+        .iter()
+        .enumerate()
+        .filter(|s| s.1.period == locking_period)
+        .collect();
 
-//     let mut reciver_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
-//         .iter()
-//         .enumerate()
-//         .filter(|s| s.1.period == locking_period)
-//         .collect();
+    if sender_vtoken.is_empty() {
+        return Err(ContractError::NotFound {
+            msg: "No tokens found for the given denom".into(),
+        });
+    }
+    let sender_vtoken_index = sender_vtoken[0].0;
+    let sender_vtoken_owned = sender_vtoken[0].1.to_owned();
 
-//     if reciver_vtoken.is_empty() {
-//         let res = Vtoken {
-//             token: sender_vtoken[0].1.token.clone(),
-//             vtoken: sender_vtoken[0].1.vtoken.clone(),
-//             period: sender_vtoken[0].1.period.clone(),
-//             start_time: sender_vtoken[0].1.start_time,
-//             end_time: sender_vtoken[0].1.end_time,
-//             status: sender_vtoken[0].1.status.clone(),
-//         };
-//         reciver_vtokens.push(res);
-//     } else {
-//         reciver_vtoken[0].1.token.amount += sender_vtoken[0].1.token.amount;
-//         reciver_vtoken[0].1.vtoken.amount += sender_vtoken[0].1.vtoken.amount;
-//         sender_vtoken.remove(0);
-//     }
-//     Ok(Response::new().add_attribute("action", "transferOwnership"))
-// }
+    // Load the recipients nft
+    let recipient_nft = TOKENS.may_load(deps.as_ref().storage, recipient.clone())?;
+
+    let mut recipient_nft = if let Some(val) = recipient_nft {
+        val
+    } else {
+        let mut state = STATE.load(deps.as_ref().storage)?;
+        state.num_tokens += 1;
+        STATE.save(deps.storage, &state)?;
+        TokenInfo {
+            owner: recipient.clone(),
+            vtokens: vec![],
+            token_id: state.num_tokens,
+        }
+    };
+
+    // Load the recipients vtoken for given denom
+    let receiver_vtokens_status = VTOKENS.may_load(deps.storage, (recipient.clone(), &denom))?;
+
+    match receiver_vtokens_status {
+        Some(mut receiver_vtokens) => {
+            let receiver_vtoken: Vec<(usize, &Vtoken)> = receiver_vtokens
+                .iter()
+                .enumerate()
+                .filter(|s| s.1.period == locking_period)
+                .collect();
+
+            // Create new vtoken if not already present, else update
+            if receiver_vtoken.is_empty() {
+                let new_vtoken = Vtoken {
+                    ..sender_vtoken_owned
+                };
+                receiver_vtokens.push(new_vtoken.clone());
+                recipient_nft.vtokens.push(new_vtoken);
+            } else {
+                let index = receiver_vtoken[0].0;
+                receiver_vtokens[index].token.amount += sender_vtoken_owned.token.amount;
+                receiver_vtokens[index].vtoken.amount += sender_vtoken_owned.vtoken.amount;
+
+                // Check if the recipient nft has a vtoken for the given denom,
+                // then update else push new
+                let recipient_nft_vtoken: Vec<(usize, &Vtoken)> = recipient_nft
+                    .vtokens
+                    .iter()
+                    .enumerate()
+                    .filter(|el| el.1.token.denom == denom && el.1.period == locking_period)
+                    .collect();
+
+                if recipient_nft_vtoken.is_empty() {
+                    recipient_nft.vtokens.push(sender_vtoken_owned);
+                } else {
+                    let index = recipient_nft_vtoken[0].0;
+                    recipient_nft.vtokens[index].token.amount += sender_vtoken_owned.token.amount;
+                    recipient_nft.vtokens[index].vtoken.amount += sender_vtoken_owned.vtoken.amount;
+                }
+            };
+
+            VTOKENS.save(deps.storage, (recipient.clone(), &denom), &receiver_vtokens)?;
+            TOKENS.save(deps.storage, recipient.clone(), &recipient_nft)?;
+        }
+        None => {
+            // Create a new vtoken
+            let new_vtoken = Vtoken {
+                ..sender_vtoken_owned
+            };
+            // Append to NFT. Don't need to check if nft has the given denom
+            // because VTOKENS and NFT.vtokens are supposed to have the same data.
+            // If not present in VTOKENS, then also not in TOKENS.
+            recipient_nft.vtokens.push(new_vtoken.clone());
+
+            VTOKENS.save(deps.storage, (recipient.clone(), &denom), &vec![new_vtoken])?;
+            TOKENS.save(deps.storage, recipient.clone(), &recipient_nft)?;
+        }
+    }
+    sender_vtokens.remove(sender_vtoken_index);
+    VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &sender_vtokens)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "transfer")
+        .add_attribute("from", info.sender)
+        .add_attribute("to", recipient))
+}
 
 pub fn bribe_proposal(
     deps: DepsMut<ComdexQuery>,
