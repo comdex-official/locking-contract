@@ -95,7 +95,7 @@ pub fn execute(
             recipent,
             locking_period,
             denom,
-        } => handle_transfer_ownership(deps, &env, info, recipent, locking_period, denom),
+        } => handle_transfer_ownership(deps, env, info, recipent, locking_period, denom),
 
         _ => panic!("Not implemented"),
     }
@@ -407,7 +407,7 @@ fn update_unlocked(
 
 // !-------
 // If the whole amount is being withdrawn then delete the mapping in LOCKED,
-// UNLOCKED, TOKENS, VTOKENS
+// UNLOCKED, TOKENS, VTOKENS, if present.
 //  -------!
 /// Handles the withdrawal of tokens after completion of locking period.
 pub fn handle_withdraw(
@@ -423,25 +423,35 @@ pub fn handle_withdraw(
         .load(deps.storage, (info.sender.clone(), &denom))
         .unwrap();
 
-    // Retrive the locked tokens with the given locking period
-    let locked_vtoken: Vec<(usize, &Vtoken)> = vtokens
+    // Retrive the tokens with the given locking period
+    let vtoken: Vec<(usize, &Vtoken)> = vtokens
         .iter()
         .enumerate()
         .filter(|s| s.1.period == locking_period)
         .collect();
 
-    if locked_vtoken.is_empty() {
-        return Err(ContractError::NotLocked {});
+    if vtoken.is_empty() {
+        return Err(ContractError::NotFound {
+            msg: "No token for given locking period".into(),
+        });
     }
 
-    if locked_vtoken[0].1.token.amount < Uint128::from(amount) {
-        ContractError::CustomError {
-            val: "Cannot withdraw more than deposted".into(),
-        };
+    // If the tokens haven't unlocked then return Err
+    if let Status::Locked = vtoken[0].1.status {
+        if vtoken[0].1.end_time > env.block.time {
+            return Err(ContractError::NotUnlocked {});
+        }
     }
 
-    let index = locked_vtoken[0].0;
-    let vtoken = locked_vtoken[0].1.to_owned();
+    // Withdraw amount can't be greater unlocked
+    if vtoken[0].1.token.amount < Uint128::from(amount) {
+        return Err(ContractError::InsufficientFunds {
+            funds: vtoken[0].1.token.amount.u128(),
+        });
+    }
+
+    let index = vtoken[0].0;
+    let vtoken = vtoken[0].1.to_owned();
 
     let PeriodWeight { weight, period: _ } =
         get_period(STATE.load(deps.as_ref().storage)?, locking_period.clone())?;
@@ -450,14 +460,80 @@ pub fn handle_withdraw(
     let token_balance = vtoken.token.amount.sub(Uint128::from(amount));
     let vtoken_balance = Uint128::from(amount) * weight;
     // Update token balance
-    vtokens[index].token.amount = token_balance;
-    vtokens[index].vtoken.amount = vtoken_balance;
+    if token_balance.is_zero() {
+        vtokens.remove(index);
+    } else {
+        vtokens[index].token.amount = token_balance;
+        vtokens[index].vtoken.amount = vtoken_balance;
+        vtokens[index].status = Status::Unlocked;
+    }
     // Save the changes to VTOKENS
     VTOKENS.save(
         deps.storage,
         (info.sender.clone(), &info.funds[0].denom),
         &vtokens,
     )?;
+
+    // Update LOCKED
+    let mut locked_map = LOCKED.load(deps.as_ref().storage, info.sender.clone())?;
+    let locked_token: Vec<(usize, &Coin)> = locked_map
+        .iter()
+        .enumerate()
+        .filter(|el| el.1.denom == denom)
+        .collect();
+
+    let index = locked_token[0].0;
+    locked_map[index].amount -= Uint128::from(amount);
+    if locked_map[index].amount.is_zero() {
+        locked_map.remove(index);
+    }
+    LOCKED.save(deps.storage, info.sender.clone(), &locked_map)?;
+
+    // Update UNLOCKED
+    let unlocked_map = UNLOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
+    match unlocked_map {
+        Some(mut unlocked_tokens) => {
+            let unlocked_token: Vec<(usize, &Coin)> = unlocked_tokens
+                .iter()
+                .enumerate()
+                .filter(|el| el.1.denom == denom)
+                .collect();
+
+            // if denom is present in UNLOCKED, then update the value else if
+            // the withdrawn amount is not zero, then create a new entry
+            if !unlocked_token.is_empty() {
+                let index = unlocked_token[0].0;
+                unlocked_tokens[index].amount -= Uint128::from(amount);
+                if unlocked_tokens[index].amount.is_zero() {
+                    unlocked_tokens.remove(index);
+                }
+                UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_tokens)?;
+            } else if !token_balance.is_zero() {
+                UNLOCKED.save(
+                    deps.storage,
+                    info.sender.clone(),
+                    &vec![Coin {
+                        amount: token_balance,
+                        denom: denom.clone(),
+                    }],
+                )?;
+            }
+        }
+        None => {
+            // Create a new entry in UNLOCKED only if the whole amount is not
+            // withdrawn.
+            if !token_balance.is_zero() {
+                UNLOCKED.save(
+                    deps.storage,
+                    info.sender.clone(),
+                    &vec![Coin {
+                        amount: token_balance,
+                        denom: denom.clone(),
+                    }],
+                )?;
+            }
+        }
+    }
 
     // Update nft
     let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
@@ -469,9 +545,13 @@ pub fn handle_withdraw(
         .collect();
 
     let index = denom_index[0].0;
-    nft.vtokens[index].token.amount = token_balance;
-    nft.vtokens[index].vtoken.amount = vtoken_balance;
-
+    if token_balance.is_zero() {
+        nft.vtokens.remove(index);
+    } else {
+        nft.vtokens[index].token.amount = token_balance;
+        nft.vtokens[index].vtoken.amount = vtoken_balance;
+        nft.vtokens[index].status = Status::Unlocked;
+    }
     TOKENS.save(deps.storage, info.sender.clone(), &nft)?;
 
     Ok(Response::new()
@@ -497,7 +577,7 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
 
 pub fn handle_transfer_ownership(
     deps: DepsMut<ComdexQuery>,
-    env: &Env,
+    env: Env,
     info: MessageInfo,
     recipent: Addr,
     locking_period: LockingPeriod,
