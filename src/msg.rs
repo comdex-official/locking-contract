@@ -51,7 +51,7 @@ pub enum ExecuteMsg {
         amount: u64,
         lockingperiod: LockingPeriod,
     },
-    TransferOwnership {
+    Transfer {
         recipent: String,
         locking_period: LockingPeriod,
         denom: String,

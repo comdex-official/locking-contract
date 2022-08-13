@@ -92,12 +92,13 @@ pub fn execute(
             lockingperiod,
         } => handle_withdraw(deps, env, info, denom, amount, lockingperiod),
 
-        ExecuteMsg::TransferOwnership {
+        ExecuteMsg::Transfer {
             recipent,
             locking_period,
             denom,
             calltype,
-        } => handle_transfer_ownership(deps, env, info, recipent, locking_period, denom, calltype),
+        } => handle_transfer(deps, env, info, recipent, locking_period, denom, calltype),
+
         _ => panic!("Not implemented"),
     }
 }
@@ -573,7 +574,7 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
 }
 
 /// Handles the transfer of vtokens between users
-pub fn handle_transfer_ownership(
+pub fn handle_transfer(
     deps: DepsMut<ComdexQuery>,
     env: Env,
     info: MessageInfo,
@@ -675,29 +676,71 @@ pub fn handle_transfer_ownership(
             TOKENS.save(deps.storage, recipient.clone(), &recipient_nft)?;
         }
     }
-    sender_vtokens.remove(sender_vtoken_index);
-    VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &sender_vtokens)?;
+    if sender_vtoken.len() > 1 {
+        sender_vtokens.remove(sender_vtoken_index);
+        VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &sender_vtokens)?;
+    } else {
+        VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
+    }
 
     if let Status::Locked = sender_vtoken_owned.status {
         // Update Locked
         // Remove the transfered tokens for the senders LOCKED mapping
-        let locked_sender_coins_status =
-            LOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
+        let mut locked_sender_coins = LOCKED.load(deps.as_ref().storage, info.sender.clone())?;
 
-        if let Some(mut locked_sender_coins) = locked_sender_coins_status {
-            let locked_sender_coin: Vec<(usize, &Coin)> = locked_sender_coins
-                .iter()
-                .enumerate()
-                .filter(|el| el.1.denom == denom)
-                .collect();
+        let locked_sender_coin: Vec<(usize, &Coin)> = locked_sender_coins
+            .iter()
+            .enumerate()
+            .filter(|el| el.1.denom == denom)
+            .collect();
 
-            let index = locked_sender_coin[0].0;
-            locked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
+        let index = locked_sender_coin[0].0;
+        locked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
 
+        // If the amount is zero, update/remove
+        if locked_sender_coins[index].amount.is_zero() {
+            // If this is the sole coin, then remove the whole mapping
+            // else, remove the coin from vector and store the result.
+            if locked_sender_coins.len() == 1 {
+                LOCKED.remove(deps.storage, info.sender.clone());
+            } else {
+                locked_sender_coins.remove(index);
+                LOCKED.save(deps.storage, info.sender.clone(), &locked_sender_coins)?;
+            }
+        } else {
             LOCKED.save(deps.storage, info.sender.clone(), &locked_sender_coins)?;
         }
+
+        // Load the recipient LOCKED coins
+        let locked_recipient_coins_status =
+            LOCKED.may_load(deps.as_ref().storage, recipient.clone())?;
+
+        // Update the recipient coins in LOCKED
+        match locked_recipient_coins_status {
+            Some(mut locked_recipient_coins) => {
+                let locked_recipient_coin: Vec<(usize, &Coin)> = locked_recipient_coins
+                    .iter()
+                    .enumerate()
+                    .filter(|el| el.1.denom == denom)
+                    .collect();
+
+                if locked_recipient_coin.is_empty() {
+                    let new_coin = sender_vtoken_owned.token.clone();
+                    LOCKED.save(deps.storage, recipient.clone(), &vec![new_coin])?;
+                } else {
+                    let index = locked_recipient_coin[0].0;
+                    locked_recipient_coins[index].amount += sender_vtoken_owned.token.amount;
+                    LOCKED.save(deps.storage, recipient.clone(), &locked_recipient_coins)?;
+                }
+            }
+            None => {
+                let new_coin = sender_vtoken_owned.token.clone();
+                LOCKED.save(deps.storage, recipient.clone(), &vec![new_coin])?;
+            }
+        };
     } else {
         // Update Unlocked
+        // Remove the transferred tokens for the sender UNLOCKED mapping
         let unlocked_sender_coins_status =
             UNLOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
 
@@ -711,8 +754,46 @@ pub fn handle_transfer_ownership(
             let index = unlocked_sender_coin[0].0;
             unlocked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
 
-            UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_sender_coins)?;
+            if unlocked_sender_coins[index].amount.is_zero() {
+                // If this is the sole coin, then remove the whole mapping
+                // else, remove coin from vector and store the result
+                if unlocked_sender_coins.len() == 1 {
+                    UNLOCKED.remove(deps.storage, info.sender.clone());
+                } else {
+                    unlocked_sender_coins.remove(index);
+                    UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_sender_coins)?;
+                }
+            } else {
+                UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_sender_coins)?;
+            }
         }
+        // Load the recipient UNLOCKED coins
+        let unlocked_recipient_coins_status =
+            UNLOCKED.may_load(deps.as_ref().storage, recipient.clone())?;
+
+        // Update the recipient coins in UNLOCKED
+        match unlocked_recipient_coins_status {
+            Some(mut unlocked_recipient_coins) => {
+                let unlocked_recipient_coin: Vec<(usize, &Coin)> = unlocked_recipient_coins
+                    .iter()
+                    .enumerate()
+                    .filter(|el| el.1.denom == denom)
+                    .collect();
+
+                if unlocked_recipient_coin.is_empty() {
+                    let new_coin = sender_vtoken_owned.token.clone();
+                    UNLOCKED.save(deps.storage, recipient.clone(), &vec![new_coin])?;
+                } else {
+                    let index = unlocked_recipient_coin[0].0;
+                    unlocked_recipient_coins[index].amount += sender_vtoken_owned.token.amount;
+                    UNLOCKED.save(deps.storage, recipient.clone(), &unlocked_recipient_coins)?;
+                }
+            }
+            None => {
+                let new_coin = sender_vtoken_owned.token.clone();
+                UNLOCKED.save(deps.storage, recipient.clone(), &vec![new_coin])?;
+            }
+        };
     };
 
     // Update sender nft
@@ -1668,8 +1749,6 @@ mod tests {
         let info = mock_info("owner", &coins(100, DENOM.to_string()));
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
-        let owner = Addr::unchecked("onwer");
-
         let res = handle_withdraw(
             deps.as_mut(),
             env.clone(),
@@ -1704,8 +1783,6 @@ mod tests {
         let owner = Addr::unchecked("owner");
         let info = mock_info("owner", &coins(100, DENOM.to_string()));
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
-
-        let owner = Addr::unchecked("onwer");
 
         let res = handle_withdraw(
             deps.as_mut(),
@@ -1742,8 +1819,6 @@ mod tests {
         let info = mock_info("owner", &coins(100, DENOM.to_string()));
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
-        let owner = Addr::unchecked("onwer");
-
         let res = handle_withdraw(
             deps.as_mut(),
             env.clone(),
@@ -1757,5 +1832,86 @@ mod tests {
             ContractError::Std(StdError::NotFound { .. }) => {}
             e => panic!("{:?}", e),
         };
+    }
+
+    #[test]
+    fn transfer_to_new_user() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        // Lock tokens
+        let msg = ExecuteMsg::Lock {
+            app_id: 12,
+            locking_period: LockingPeriod::T1,
+            calltype: None,
+        };
+
+        let owner = Addr::unchecked("owner");
+        let recipient = Addr::unchecked("recipient");
+
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+
+        let locked_vtokens = VTOKENS
+            .load(deps.as_ref().storage, (owner.clone(), DENOM))
+            .unwrap();
+
+        let msg = ExecuteMsg::Transfer {
+            recipent: recipient.to_string(),
+            locking_period: LockingPeriod::T1,
+            denom: DENOM.to_string(),
+            calltype: None,
+        };
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        assert_eq!(res.messages.len(), 0);
+        assert_eq!(res.attributes.len(), 3);
+
+        // Check correct update in LOCKED
+        let sender_locked_coins = LOCKED
+            .load(deps.as_ref().storage, owner.clone())
+            .unwrap_err();
+        match sender_locked_coins {
+            StdError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
+
+        let recipient_locked_coins = LOCKED
+            .load(deps.as_ref().storage, recipient.clone())
+            .unwrap();
+        assert_eq!(recipient_locked_coins.len(), 1);
+        assert_eq!(recipient_locked_coins[0].amount.u128(), 100u128);
+        assert_eq!(recipient_locked_coins[0].denom, DENOM.to_string());
+
+        // Check correct update in sender vtokens
+        let res = VTOKENS
+            .load(deps.as_ref().storage, (owner.clone(), DENOM))
+            .unwrap_err();
+        match res {
+            StdError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        }
+
+        // Check correct update in recipient vtokens
+        let res = VTOKENS
+            .load(deps.as_ref().storage, (recipient.clone(), DENOM))
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0], locked_vtokens[0]);
+
+        // Check correct update in sender nft
+        let sender_nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
+        assert_eq!(sender_nft.vtokens.len(), 0);
+
+        // Check correct update in recipient nft
+        let recipient_nft = TOKENS
+            .load(deps.as_ref().storage, recipient.clone())
+            .unwrap();
+        assert_eq!(recipient_nft.owner, recipient.clone());
+        assert_eq!(recipient_nft.vtokens.len(), 1);
+        assert_eq!(recipient_nft.vtokens[0], locked_vtokens[0]);
     }
 }
