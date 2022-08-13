@@ -572,7 +572,7 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
     })
 }
 
-// !------- Need to update LOCKED, UNLOCKED, and sender NFT -------!
+// !------- Only update LOCKED/UNLOCKED according to the vtoken status -------!
 /// Handles the transfer of vtokens between users
 pub fn handle_transfer_ownership(
     deps: DepsMut<ComdexQuery>,
@@ -632,7 +632,7 @@ pub fn handle_transfer_ownership(
             // Create new vtoken if not already present, else update
             if receiver_vtoken.is_empty() {
                 let new_vtoken = Vtoken {
-                    ..sender_vtoken_owned
+                    ..sender_vtoken_owned.clone()
                 };
                 receiver_vtokens.push(new_vtoken.clone());
                 recipient_nft.vtokens.push(new_vtoken);
@@ -651,7 +651,7 @@ pub fn handle_transfer_ownership(
                     .collect();
 
                 if recipient_nft_vtoken.is_empty() {
-                    recipient_nft.vtokens.push(sender_vtoken_owned);
+                    recipient_nft.vtokens.push(sender_vtoken_owned.clone());
                 } else {
                     let index = recipient_nft_vtoken[0].0;
                     recipient_nft.vtokens[index].token.amount += sender_vtoken_owned.token.amount;
@@ -665,7 +665,7 @@ pub fn handle_transfer_ownership(
         None => {
             // Create a new vtoken
             let new_vtoken = Vtoken {
-                ..sender_vtoken_owned
+                ..sender_vtoken_owned.clone()
             };
             // Append to NFT. Don't need to check if nft has the given denom
             // because VTOKENS and NFT.vtokens are supposed to have the same data.
@@ -678,6 +678,55 @@ pub fn handle_transfer_ownership(
     }
     sender_vtokens.remove(sender_vtoken_index);
     VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &sender_vtokens)?;
+
+    // Update Locked
+    // Remove the transfered tokens for the senders LOCKED mapping
+    let locked_sender_coins_status = LOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
+
+    if let Some(mut locked_sender_coins) = locked_sender_coins_status {
+        let locked_sender_coin: Vec<(usize, &Coin)> = locked_sender_coins
+            .iter()
+            .enumerate()
+            .filter(|el| el.1.denom == denom)
+            .collect();
+
+        let index = locked_sender_coin[0].0;
+        locked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
+
+        LOCKED.save(deps.storage, info.sender.clone(), &locked_sender_coins)?;
+    }
+
+    // Update Unlocked
+    let mut unlocked_sender_coins_status =
+        UNLOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
+
+    if let Some(mut unlocked_sender_coins) = unlocked_sender_coins_status {
+        let unlocked_sender_coin: Vec<(usize, &Coin)> = unlocked_sender_coins
+            .iter()
+            .enumerate()
+            .filter(|el| el.1.denom == denom)
+            .collect();
+
+        let index = unlocked_sender_coin[0].0;
+        unlocked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
+
+        UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_sender_coins)?;
+    }
+
+    // Update sender nft
+    let mut sender_nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
+
+    let sender_nft_denom_vtoken: Vec<(usize, &Vtoken)> = sender_nft
+        .vtokens
+        .iter()
+        .enumerate()
+        .filter(|el| el.1.token.denom == denom && el.1.period == locking_period)
+        .collect();
+
+    let index = sender_nft_denom_vtoken[0].0;
+    sender_nft.vtokens.remove(index);
+
+    TOKENS.save(deps.storage, info.sender.clone(), &sender_nft)?;
 
     Ok(Response::new()
         .add_attribute("action", "transfer")
