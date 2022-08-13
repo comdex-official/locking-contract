@@ -572,7 +572,6 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
     })
 }
 
-// !------- Only update LOCKED/UNLOCKED according to the vtoken status -------!
 /// Handles the transfer of vtokens between users
 pub fn handle_transfer_ownership(
     deps: DepsMut<ComdexQuery>,
@@ -679,39 +678,42 @@ pub fn handle_transfer_ownership(
     sender_vtokens.remove(sender_vtoken_index);
     VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &sender_vtokens)?;
 
-    // Update Locked
-    // Remove the transfered tokens for the senders LOCKED mapping
-    let locked_sender_coins_status = LOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
+    if let Status::Locked = sender_vtoken_owned.status {
+        // Update Locked
+        // Remove the transfered tokens for the senders LOCKED mapping
+        let locked_sender_coins_status =
+            LOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
 
-    if let Some(mut locked_sender_coins) = locked_sender_coins_status {
-        let locked_sender_coin: Vec<(usize, &Coin)> = locked_sender_coins
-            .iter()
-            .enumerate()
-            .filter(|el| el.1.denom == denom)
-            .collect();
+        if let Some(mut locked_sender_coins) = locked_sender_coins_status {
+            let locked_sender_coin: Vec<(usize, &Coin)> = locked_sender_coins
+                .iter()
+                .enumerate()
+                .filter(|el| el.1.denom == denom)
+                .collect();
 
-        let index = locked_sender_coin[0].0;
-        locked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
+            let index = locked_sender_coin[0].0;
+            locked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
 
-        LOCKED.save(deps.storage, info.sender.clone(), &locked_sender_coins)?;
-    }
+            LOCKED.save(deps.storage, info.sender.clone(), &locked_sender_coins)?;
+        }
+    } else {
+        // Update Unlocked
+        let unlocked_sender_coins_status =
+            UNLOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
 
-    // Update Unlocked
-    let mut unlocked_sender_coins_status =
-        UNLOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
+        if let Some(mut unlocked_sender_coins) = unlocked_sender_coins_status {
+            let unlocked_sender_coin: Vec<(usize, &Coin)> = unlocked_sender_coins
+                .iter()
+                .enumerate()
+                .filter(|el| el.1.denom == denom)
+                .collect();
 
-    if let Some(mut unlocked_sender_coins) = unlocked_sender_coins_status {
-        let unlocked_sender_coin: Vec<(usize, &Coin)> = unlocked_sender_coins
-            .iter()
-            .enumerate()
-            .filter(|el| el.1.denom == denom)
-            .collect();
+            let index = unlocked_sender_coin[0].0;
+            unlocked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
 
-        let index = unlocked_sender_coin[0].0;
-        unlocked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
-
-        UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_sender_coins)?;
-    }
+            UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_sender_coins)?;
+        }
+    };
 
     // Update sender nft
     let mut sender_nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
