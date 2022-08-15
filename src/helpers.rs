@@ -8,7 +8,7 @@ use comdex_bindings::{ComdexMessages, ComdexQuery};
 use cosmwasm_std::{ Binary, Deps, DepsMut, Env, MessageInfo, Response,Coin};
 use comdex_bindings::{
      GetAppResponse, GetAssetDataResponse, MessageValidateResponse, StateResponse,
-    TotalSupplyResponse,
+    TotalSupplyResponse,GetExtendedPairByAppResponse
 };
 use cosmwasm_std::{ Decimal,  QueryRequest};
 
@@ -53,3 +53,30 @@ pub fn get_token_supply(
     Ok(total_token_supply.current_supply)
 }
 
+pub fn get_token_vote_weight(
+    deps: Deps<ComdexQuery>,
+    app_id_param: u64,
+    asset_id_param: u64,
+) -> StdResult<u64> {
+    let total_token_supply = deps
+        .querier
+        .query::<TotalSupplyResponse>(&QueryRequest::Custom(ComdexQuery::TotalSupply {
+            app_id: app_id_param,
+            asset_id: asset_id_param,
+        }))?;
+
+    Ok(total_token_supply.current_supply)
+}
+
+pub fn query_extended_pair_by_app(
+    deps: Deps<ComdexQuery>,
+    app_mapping_id_param: u64,
+) -> StdResult<Vec<u64>> {
+    let ext_pair_response =
+        deps.querier
+            .query::<GetExtendedPairByAppResponse>(&QueryRequest::Custom(ComdexQuery::ExtendedPairByApp {
+                app_id: app_mapping_id_param,
+            }))?;
+
+    Ok(ext_pair_response.ext_pair)
+}

@@ -1,6 +1,6 @@
 use crate::state::{CallType, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
 use cosmwasm_std::{
-    to_binary, Addr, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
+    to_binary, Addr, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult,Decimal
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
