@@ -591,7 +591,7 @@ pub fn handle_transfer(
     let sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
         .iter()
         .enumerate()
-        .filter(|s| s.1.period == locking_period)
+        .filter(|s| s.1.token.denom == denom && s.1.period == locking_period)
         .collect();
 
     if sender_vtoken.is_empty() {
@@ -2027,11 +2027,20 @@ mod tests {
         }
 
         // Check correct update in recipient vtokens
-        let res = VTOKENS
-            .load(deps.as_ref().storage, (recipient.clone(), denom1))
-            .unwrap();
-        assert_eq!(res.len(), 2);
-        assert_eq!(res[1], locked_vtokens[0]);
+        {
+            let res = VTOKENS
+                .load(deps.as_ref().storage, (recipient.clone(), denom1))
+                .unwrap();
+            assert_eq!(res.len(), 1);
+            assert_eq!(res[0], locked_vtokens[0]);
+
+            let res = VTOKENS
+                .load(deps.as_ref().storage, (recipient.clone(), denom2))
+                .unwrap();
+            assert_eq!(res.len(), 1);
+            assert_eq!(res[0].token.amount.u128(), 100);
+            assert_eq!(res[0].token.denom, denom2.to_string());
+        }
 
         // Check correct update in sender nft
         let sender_nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
@@ -2043,6 +2052,8 @@ mod tests {
             .unwrap();
         assert_eq!(recipient_nft.owner, recipient.clone());
         assert_eq!(recipient_nft.vtokens.len(), 2);
+        assert_eq!(recipient_nft.vtokens[0].token.amount.u128(), 100);
+        assert_eq!(recipient_nft.vtokens[0].token.denom, denom2.to_string());
         assert_eq!(recipient_nft.vtokens[1], locked_vtokens[0]);
     }
 }
