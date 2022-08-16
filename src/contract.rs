@@ -16,8 +16,8 @@ use crate::state::{
     PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE, VOTINGPERIOD,
 };
 use crate::state::{
-    LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, LOCKED, STATE,
-    SUPPLY, TOKENS, UNLOCKED, VTOKENS,
+    LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
+    TOKENS, VTOKENS,
 };
 use comdex_bindings::{ComdexMessages, ComdexQuery};
 
@@ -44,6 +44,7 @@ pub fn instantiate(
     STATE.save(deps.storage, &state)?;
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     VOTINGPERIOD.save(deps.storage, &msg.voting_period)?;
+
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("owner", info.sender))
@@ -184,15 +185,6 @@ fn lock_funds(
 
                 TOKENS.save(deps.storage, sender.clone(), &token)?;
             }
-
-            // Finally update the coins in locked mapping
-            update_locked(
-                deps.storage,
-                sender.clone(),
-                funds.denom.clone(),
-                funds.amount,
-                true,
-            )?;
         }
         None => {
             // Create a new NFT
@@ -219,8 +211,6 @@ fn lock_funds(
                 (sender.clone(), &funds.denom),
                 &vec![new_vtoken.clone()],
             )?;
-
-            LOCKED.save(deps.storage, sender.clone(), &vec![funds.clone()])?;
 
             new_nft.vtokens.push(new_vtoken);
             TOKENS.save(deps.storage, sender.clone(), &new_nft)?;
@@ -345,58 +335,6 @@ fn update_denom_supply(
     Ok(())
 }
 
-/// Update the LOCKED mapping.
-fn update_locked(
-    storage: &mut dyn Storage,
-    owner: Addr,
-    denom: String,
-    amount: Uint128,
-    add: bool,
-) -> Result<(), ContractError> {
-    let coin_vector = LOCKED.may_load(storage, owner.clone())?;
-    let mut coin_vector = coin_vector.unwrap_or(vec![]);
-
-    // Creates a (index, Coin) pair so that it is easier to update this coin later
-    let res: Vec<(usize, &Coin)> = coin_vector
-        .iter()
-        .enumerate()
-        .filter(|val| val.1.denom == denom)
-        .collect();
-
-    // Token should exist for the given denom
-    if res.is_empty() {
-        if !add {
-            return Err(ContractError::NotFound {
-                msg: "Locked tokens don't exist for given denom".to_string(),
-            });
-        }
-        coin_vector.push(Coin {
-            amount: amount,
-            denom: denom.clone(),
-        });
-    } else {
-        let index = res[0].0;
-        let updated_amount: Uint128;
-        if add {
-            updated_amount = res[0].1.amount + amount;
-        } else {
-            if res[0].1.amount < amount {
-                return Err(ContractError::CustomError {
-                    val: "token.amount < amount".into(),
-                });
-            }
-
-            updated_amount = res[0].1.amount - amount;
-        }
-
-        coin_vector[index].amount = updated_amount;
-    }
-
-    LOCKED.save(storage, owner, &coin_vector)?;
-
-    Ok(())
-}
-
 /// Handles the withdrawal of tokens after completion of locking period.
 pub fn handle_withdraw(
     deps: DepsMut<ComdexQuery>,
@@ -462,75 +400,6 @@ pub fn handle_withdraw(
             (info.sender.clone(), &info.funds[0].denom),
             &vtokens,
         )?;
-    }
-
-    // Update LOCKED
-    // It is possible that there are no locked tokens for the given owner
-    let denom_locked_map = LOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
-    if let Some(mut locked_map) = denom_locked_map {
-        let locked_token: Vec<(usize, &Coin)> = locked_map
-            .iter()
-            .enumerate()
-            .filter(|el| el.1.denom == denom)
-            .collect();
-
-        // If locked tokens are present for the given denom only then update
-        if !locked_token.is_empty() {
-            let index = locked_token[0].0;
-            locked_map[index].amount -= vtoken.token.amount;
-            if locked_map[index].amount.is_zero() {
-                locked_map.remove(index);
-            }
-            LOCKED.save(deps.storage, info.sender.clone(), &locked_map)?;
-        }
-    };
-
-    // Update UNLOCKED
-    // It is possible that the UNLOCKED map hasn't been updated as yet, even though
-    // the tokens have completed locking_period
-    let unlocked_map = UNLOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
-    match unlocked_map {
-        Some(mut unlocked_tokens) => {
-            let unlocked_token: Vec<(usize, &Coin)> = unlocked_tokens
-                .iter()
-                .enumerate()
-                .filter(|el| el.1.denom == denom)
-                .collect();
-
-            // if denom is present in UNLOCKED, then update the value else if
-            // the withdrawn amount is not zero, then create a new entry
-            if !unlocked_token.is_empty() {
-                let index = unlocked_token[0].0;
-                unlocked_tokens[index].amount -= Uint128::from(amount);
-                if unlocked_tokens[index].amount.is_zero() {
-                    unlocked_tokens.remove(index);
-                }
-                UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_tokens)?;
-            } else if !token_balance.is_zero() {
-                UNLOCKED.save(
-                    deps.storage,
-                    info.sender.clone(),
-                    &vec![Coin {
-                        amount: token_balance,
-                        denom: denom.clone(),
-                    }],
-                )?;
-            }
-        }
-        None => {
-            // Create a new entry in UNLOCKED only if the whole amount is not
-            // withdrawn.
-            if !token_balance.is_zero() {
-                UNLOCKED.save(
-                    deps.storage,
-                    info.sender.clone(),
-                    &vec![Coin {
-                        amount: token_balance,
-                        denom: denom.clone(),
-                    }],
-                )?;
-            }
-        }
     }
 
     // Update nft
@@ -695,129 +564,6 @@ pub fn handle_transfer(
     } else {
         VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
     }
-
-    if let Status::Locked = sender_vtoken_owned.status {
-        // Update Locked
-        // Remove the transfered tokens for the senders LOCKED mapping
-        let mut locked_sender_coins = LOCKED.load(deps.as_ref().storage, info.sender.clone())?;
-
-        let locked_sender_coin: Vec<(usize, &Coin)> = locked_sender_coins
-            .iter()
-            .enumerate()
-            .filter(|el| el.1.denom == denom)
-            .collect();
-
-        let index = locked_sender_coin[0].0;
-        locked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
-
-        // If the amount is zero, update/remove
-        if locked_sender_coins[index].amount.is_zero() {
-            // If this is the sole coin, then remove the whole mapping
-            // else, remove the coin from vector and store the result.
-            if locked_sender_coins.len() == 1 {
-                LOCKED.remove(deps.storage, info.sender.clone());
-            } else {
-                locked_sender_coins.remove(index);
-                LOCKED.save(deps.storage, info.sender.clone(), &locked_sender_coins)?;
-            }
-        } else {
-            LOCKED.save(deps.storage, info.sender.clone(), &locked_sender_coins)?;
-        }
-
-        // Load the recipient LOCKED coins
-        let locked_recipient_coins_status =
-            LOCKED.may_load(deps.as_ref().storage, recipient.clone())?;
-
-        // Update the recipient coins in LOCKED
-        match locked_recipient_coins_status {
-            Some(mut locked_recipient_coins) => {
-                if locked_recipient_coins.is_empty() {
-                    let new_coin = sender_vtoken_owned.token.clone();
-                    LOCKED.save(deps.storage, recipient.clone(), &vec![new_coin])?;
-                } else {
-                    let locked_recipient_coin: Vec<(usize, &Coin)> = locked_recipient_coins
-                        .iter()
-                        .enumerate()
-                        .filter(|el| el.1.denom == denom)
-                        .collect();
-
-                    if locked_recipient_coin.is_empty() {
-                        let new_coin = sender_vtoken_owned.token.clone();
-                        locked_recipient_coins.push(new_coin);
-                    } else {
-                        let index = locked_recipient_coin[0].0;
-                        locked_recipient_coins[index].amount += sender_vtoken_owned.token.amount;
-                    }
-                    LOCKED.save(deps.storage, recipient.clone(), &locked_recipient_coins)?;
-                }
-            }
-            None => {
-                let new_coin = sender_vtoken_owned.token.clone();
-                LOCKED.save(deps.storage, recipient.clone(), &vec![new_coin])?;
-            }
-        };
-    } else {
-        // Update Unlocked
-        // Remove the transferred tokens for the sender UNLOCKED mapping
-        let unlocked_sender_coins_status =
-            UNLOCKED.may_load(deps.as_ref().storage, info.sender.clone())?;
-
-        if let Some(mut unlocked_sender_coins) = unlocked_sender_coins_status {
-            let unlocked_sender_coin: Vec<(usize, &Coin)> = unlocked_sender_coins
-                .iter()
-                .enumerate()
-                .filter(|el| el.1.denom == denom)
-                .collect();
-
-            let index = unlocked_sender_coin[0].0;
-            unlocked_sender_coins[index].amount -= sender_vtoken_owned.token.amount;
-
-            if unlocked_sender_coins[index].amount.is_zero() {
-                // If this is the sole coin, then remove the whole mapping
-                // else, remove coin from vector and store the result
-                if unlocked_sender_coins.len() == 1 {
-                    UNLOCKED.remove(deps.storage, info.sender.clone());
-                } else {
-                    unlocked_sender_coins.remove(index);
-                    UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_sender_coins)?;
-                }
-            } else {
-                UNLOCKED.save(deps.storage, info.sender.clone(), &unlocked_sender_coins)?;
-            }
-        }
-        // Load the recipient UNLOCKED coins
-        let unlocked_recipient_coins_status =
-            UNLOCKED.may_load(deps.as_ref().storage, recipient.clone())?;
-
-        // Update the recipient coins in UNLOCKED
-        match unlocked_recipient_coins_status {
-            Some(mut unlocked_recipient_coins) => {
-                if unlocked_recipient_coins.is_empty() {
-                    let new_coin = sender_vtoken_owned.token.clone();
-                    UNLOCKED.save(deps.storage, recipient.clone(), &vec![new_coin])?;
-                } else {
-                    let unlocked_recipient_coin: Vec<(usize, &Coin)> = unlocked_recipient_coins
-                        .iter()
-                        .enumerate()
-                        .filter(|el| el.1.denom == denom)
-                        .collect();
-
-                    if unlocked_recipient_coin.is_empty() {
-                        let new_coin = sender_vtoken_owned.token.clone();
-                        unlocked_recipient_coins.push(new_coin);
-                    } else {
-                        let index = unlocked_recipient_coin[0].0;
-                        unlocked_recipient_coins[index].amount += sender_vtoken_owned.token.amount;
-                    }
-                    UNLOCKED.save(deps.storage, recipient.clone(), &unlocked_recipient_coins)?;
-                }
-            }
-            None => {
-                let new_coin = sender_vtoken_owned.token.clone();
-                UNLOCKED.save(deps.storage, recipient.clone(), &vec![new_coin])?;
-            }
-        };
-    };
 
     // Update sender nft
     let mut sender_nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
@@ -1355,14 +1101,6 @@ mod tests {
         assert_eq!(token.vtokens[0].period, LockingPeriod::T1);
         assert_eq!(token.vtokens[0].status, Status::Locked);
 
-        // Check to see the LOCKED token mapping has correctly changed
-        let locked_tokens = LOCKED
-            .load(deps.as_ref().storage, sender_addr.clone())
-            .unwrap();
-        assert_eq!(locked_tokens.len(), 1);
-        assert_eq!(locked_tokens[0].amount.u128(), 100u128);
-        assert_eq!(locked_tokens[0].denom, DENOM.to_string());
-
         // Check to see the SUPPLY mapping is correct
         let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
         assert_eq!(supply.token, 100u128);
@@ -1433,16 +1171,6 @@ mod tests {
         assert_eq!(nft.vtokens[1].period, LockingPeriod::T2);
         assert_eq!(nft.vtokens[1].status, Status::Locked);
 
-        // Check correct update in LOCKED
-        let locked_map = LOCKED
-            .load(deps.as_ref().storage, owner_addr.clone())
-            .unwrap();
-        assert_eq!(locked_map.len(), 2);
-        assert_eq!(locked_map[0].denom, "DNM1".to_string());
-        assert_eq!(locked_map[0].amount.u128(), 100u128);
-        assert_eq!(locked_map[1].denom, "DNM2".to_string());
-        assert_eq!(locked_map[1].amount.u128(), 100u128);
-
         // Check correct update in SUPPLY
         let supply = SUPPLY.load(deps.as_ref().storage, "DNM1").unwrap();
         assert_eq!(supply.token, 100u128);
@@ -1505,14 +1233,6 @@ mod tests {
         );
         assert_eq!(nft.vtokens[0].period, LockingPeriod::T1);
         assert_eq!(nft.vtokens[0].status, Status::Locked);
-
-        // Check correct updation in LOCKED
-        let locked_tokens = LOCKED
-            .load(deps.as_ref().storage, owner_addr.clone())
-            .unwrap();
-        assert_eq!(locked_tokens.len(), 1);
-        assert_eq!(locked_tokens[0].amount.u128(), 200u128);
-        assert_eq!(locked_tokens[0].denom, DENOM.to_string());
 
         // Check correct update in SUPPLY
         let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
@@ -1577,14 +1297,6 @@ mod tests {
         assert_eq!(nft.vtokens[1].period, LockingPeriod::T2);
         assert_eq!(nft.vtokens[1].status, Status::Locked);
 
-        // Check correct updation in LOCKED
-        let locked_tokens = LOCKED
-            .load(deps.as_ref().storage, owner_addr.clone())
-            .unwrap();
-        assert_eq!(locked_tokens.len(), 1);
-        assert_eq!(locked_tokens[0].amount.u128(), 200u128);
-        assert_eq!(locked_tokens[0].denom, DENOM.to_string());
-
         // Check correct update in SUPPLY
         let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
         assert_eq!(supply.token, 200u128);
@@ -1639,12 +1351,6 @@ mod tests {
 
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
-        // Check correct update in LOCKED
-        let locked_tokens = LOCKED.load(deps.as_ref().storage, owner.clone()).unwrap();
-        assert_eq!(locked_tokens.len(), 1);
-        assert_eq!(locked_tokens[0].amount.u128(), 100u128);
-        assert_eq!(locked_tokens[0].denom, DENOM.to_string());
-
         env.block.time = env.block.time.plus_seconds(imsg.t1.period + 1u64);
 
         // Withdrawing 10 Tokens
@@ -1666,18 +1372,6 @@ mod tests {
                 amount: vec![coin(10, DENOM.to_string())]
             })
         );
-
-        // Check correct update in LOCKED
-        // Entry from LOCKED should be removed, since the tokens have completed
-        // their locking period
-        let locked = LOCKED.load(deps.as_ref().storage, owner.clone()).unwrap();
-        assert_eq!(locked.len(), 0);
-
-        // Check correct update in UNLOCKED
-        let unlocked = UNLOCKED.load(deps.as_ref().storage, owner.clone()).unwrap();
-        assert_eq!(unlocked.len(), 1);
-        assert_eq!(unlocked[0].denom, DENOM.to_string());
-        assert_eq!(unlocked[0].amount.u128(), 90u128);
 
         // Just a check if the order matters with Decimal
         let vtoken_balance1 = Uint128::from(90u64) * imsg.t1.weight;
@@ -1893,22 +1587,6 @@ mod tests {
         assert_eq!(res.messages.len(), 0);
         assert_eq!(res.attributes.len(), 3);
 
-        // Check correct update in LOCKED
-        let sender_locked_coins = LOCKED
-            .load(deps.as_ref().storage, owner.clone())
-            .unwrap_err();
-        match sender_locked_coins {
-            StdError::NotFound { .. } => {}
-            e => panic!("{:?}", e),
-        };
-
-        let recipient_locked_coins = LOCKED
-            .load(deps.as_ref().storage, recipient.clone())
-            .unwrap();
-        assert_eq!(recipient_locked_coins.len(), 1);
-        assert_eq!(recipient_locked_coins[0].amount.u128(), 100u128);
-        assert_eq!(recipient_locked_coins[0].denom, DENOM.to_string());
-
         // Check correct update in sender vtokens
         let res = VTOKENS
             .load(deps.as_ref().storage, (owner.clone(), DENOM))
@@ -1982,14 +1660,6 @@ mod tests {
         let locked_vtokens = VTOKENS
             .load(deps.as_ref().storage, (owner.clone(), denom1))
             .unwrap();
-        {
-            let locked = LOCKED
-                .load(deps.as_ref().storage, recipient.clone())
-                .unwrap();
-            assert_eq!(locked.len(), 1);
-            assert_eq!(locked[0].amount.u128(), 100);
-            assert_eq!(locked[0].denom, denom2.to_string());
-        }
 
         let msg = ExecuteMsg::Transfer {
             recipent: recipient.to_string(),
@@ -2000,22 +1670,6 @@ mod tests {
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
         assert_eq!(res.messages.len(), 0);
         assert_eq!(res.attributes.len(), 3);
-
-        // Check correct update in LOCKED
-        let sender_locked_coins = LOCKED
-            .load(deps.as_ref().storage, owner.clone())
-            .unwrap_err();
-        match sender_locked_coins {
-            StdError::NotFound { .. } => {}
-            e => panic!("{:?}", e),
-        };
-
-        let recipient_locked_coins = LOCKED
-            .load(deps.as_ref().storage, recipient.clone())
-            .unwrap();
-        assert_eq!(recipient_locked_coins.len(), 2);
-        assert_eq!(recipient_locked_coins[1].amount.u128(), 100u128);
-        assert_eq!(recipient_locked_coins[1].denom, denom1.to_string());
 
         // Check correct update in sender vtokens
         let res = VTOKENS
@@ -2105,27 +1759,6 @@ mod tests {
             None,
         )
         .unwrap();
-
-        // Check LOCKED
-        LOCKED
-            .load(deps.as_ref().storage, sender.clone())
-            .unwrap_err();
-
-        let recipient_locked = LOCKED
-            .load(deps.as_ref().storage, recipient.clone())
-            .unwrap();
-        assert_eq!(recipient_locked.len(), 1);
-        assert_eq!(recipient_locked[0].amount.u128(), 2000);
-        assert_eq!(recipient_locked[0].denom, DENOM.to_string());
-
-        // Check UNLOCKED
-        UNLOCKED
-            .load(deps.as_ref().storage, sender.clone())
-            .unwrap_err();
-
-        UNLOCKED
-            .load(deps.as_ref().storage, recipient.clone())
-            .unwrap_err();
 
         // Check VTOKENS
         VTOKENS
