@@ -43,19 +43,17 @@ pub enum ExecuteMsg {
     Lock {
         app_id: u64,
         locking_period: LockingPeriod,
-        calltype: Option<CallType>,
     },
     Withdraw {
         app_id: u64,
         denom: String,
         amount: u64,
-        lockingperiod: LockingPeriod,
+        locking_period: LockingPeriod,
     },
     Transfer {
         recipent: String,
         locking_period: LockingPeriod,
         denom: String,
-        calltype: Option<CallType>,
     },
 }
 

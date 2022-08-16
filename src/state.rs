@@ -98,9 +98,8 @@ pub const STATE: Item<State> = Item::new("state");
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
 pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");
-// Vtoken owned by an address for a specific denom. For each denom, each vector
-// will only contain four Vtokens, because of the 4 LockingPeriods.
-pub const VTOKENS: Map<(Addr, &str), Vec<Vtoken>> = Map::new("Vtokens by NFT");
+// Vtoken owned by an address for a specific denom
+pub const VTOKENS: Map<(Addr, &str), Vec<Vtoken>> = Map::new("Vtokens by owner");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Proposal {

@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, Storage, Timestamp, Uint128, WasmQuery,
+    Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
 use schemars::_serde_json::de;
@@ -12,12 +12,12 @@ use crate::error::ContractError;
 use crate::helpers::{get_token_supply, query_app_exists, query_get_asset_data};
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{
-    CallType, Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, EMISSION, PROPOSAL,
-    PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE, VOTINGPERIOD,
-};
-use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
     TOKENS, VTOKENS,
+};
+use crate::state::{
+    Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, EMISSION, PROPOSAL, PROPOSALCOUNT,
+    PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE, VOTINGPERIOD,
 };
 use comdex_bindings::{ComdexMessages, ComdexQuery};
 
@@ -83,22 +83,20 @@ pub fn execute(
         ExecuteMsg::Lock {
             app_id,
             locking_period,
-            calltype,
-        } => handle_lock_nft(deps, env, info, app_id, locking_period, calltype),
+        } => handle_lock_nft(deps, env, info, app_id, locking_period),
 
         ExecuteMsg::Withdraw {
             app_id,
             denom,
             amount,
-            lockingperiod,
-        } => handle_withdraw(deps, env, info, denom, amount, lockingperiod),
+            locking_period,
+        } => handle_withdraw(deps, env, info, denom, locking_period),
 
         ExecuteMsg::Transfer {
             recipent,
             locking_period,
             denom,
-            calltype,
-        } => handle_transfer(deps, env, info, recipent, locking_period, denom, calltype),
+        } => handle_transfer(deps, env, info, recipent, locking_period, denom),
 
         _ => panic!("Not implemented"),
     }
@@ -111,80 +109,30 @@ fn lock_funds(
     sender: Addr,
     funds: Coin,
     locking_period: LockingPeriod,
-    calltype: Option<CallType>,
 ) -> Result<(), ContractError> {
     let mut state = STATE.load(deps.storage)?;
 
     // Load the locking period and weight
     let PeriodWeight { period, weight } = get_period(state.clone(), locking_period.clone())?;
 
+    let new_vtoken = create_vtoken(
+        deps.storage,
+        env,
+        locking_period.clone(),
+        period,
+        weight,
+        funds.clone(),
+    )?;
+
     // Loads the NFT if present else None
     let nft = TOKENS.may_load(deps.storage, sender.clone())?;
 
     match nft {
         Some(mut token) => {
-            let res: Vec<&Vtoken> = token
-                .vtokens
-                .iter()
-                .filter(|s| s.token.denom == funds.denom.clone() && s.period == locking_period)
-                .collect();
+            // If NFT exists then lock new vtokens
+            token.vtokens.push(new_vtoken.clone());
 
-            if res.is_empty() {
-                // create new token
-                let new_vtoken = create_vtoken(
-                    deps.storage,
-                    &env,
-                    locking_period.clone(),
-                    period,
-                    weight,
-                    funds.clone(),
-                )?;
-
-                // Save the vtoken in VTOKENS
-                VTOKENS.save(
-                    deps.storage,
-                    (sender.clone(), &funds.denom),
-                    &vec![new_vtoken.clone()],
-                )?;
-
-                // Update nft and save
-                token.vtokens.push(new_vtoken);
-                TOKENS.save(deps.storage, sender.clone(), &token)?;
-            } else {
-                let mut vtoken = res[0].to_owned();
-
-                let mut remaining: Vec<Vtoken> = token
-                    .vtokens
-                    .into_iter()
-                    .filter(|s| !(s.token.denom == funds.denom))
-                    .collect();
-
-                // Increase the token count
-                vtoken.token.amount.add_assign(funds.amount.clone());
-
-                // Increase the vtoken count
-                let updated_vtoken = weight * funds.amount;
-                vtoken.vtoken.amount.add_assign(updated_vtoken);
-
-                // start_time and end_time are updated along with tokens
-                if let CallType::UpdatePeriod = calltype.unwrap_or(CallType::UpdateAmount) {
-                    vtoken.start_time = env.block.time;
-                    vtoken.end_time = env.block.time.plus_seconds(period);
-                }
-
-                remaining.push(vtoken);
-                token.vtokens = remaining;
-
-                update_denom_supply(
-                    deps.storage,
-                    &funds.denom,
-                    updated_vtoken.u128(),
-                    funds.amount.u128(),
-                    true,
-                )?;
-
-                TOKENS.save(deps.storage, sender.clone(), &token)?;
-            }
+            TOKENS.save(deps.storage, sender.clone(), &token)?;
         }
         None => {
             // Create a new NFT
@@ -196,26 +144,27 @@ fn lock_funds(
                 token_id: state.num_tokens,
             };
 
-            // Create new Vtoken for new deposit
-            let new_vtoken = create_vtoken(
-                deps.storage,
-                &env,
-                locking_period.clone(),
-                period,
-                weight,
-                funds.clone(),
-            )?;
-
-            VTOKENS.save(
-                deps.storage,
-                (sender.clone(), &funds.denom),
-                &vec![new_vtoken.clone()],
-            )?;
-
-            new_nft.vtokens.push(new_vtoken);
+            new_nft.vtokens.push(new_vtoken.clone());
             TOKENS.save(deps.storage, sender.clone(), &new_nft)?;
         }
-    }
+    };
+
+    // Update VTOKENS
+    VTOKENS.update(
+        deps.storage,
+        (sender.clone(), &funds.denom),
+        |el| -> StdResult<Vec<Vtoken>> {
+            // If value exists for given key, then push new vtoken else update
+            match el {
+                Some(mut val) => {
+                    val.push(new_vtoken);
+                    Ok(val)
+                }
+
+                None => Ok(vec![new_vtoken]),
+            }
+        },
+    )?;
 
     Ok(())
 }
@@ -227,7 +176,6 @@ pub fn handle_lock_nft(
     info: MessageInfo,
     app_id: u64,
     locking_period: LockingPeriod,
-    calltype: Option<CallType>,
 ) -> Result<Response, ContractError> {
     // Only allow a single denomination
     if info.funds.is_empty() {
@@ -249,7 +197,6 @@ pub fn handle_lock_nft(
         info.sender.clone(),
         info.funds[0].clone(),
         locking_period,
-        calltype,
     )?;
 
     Ok(Response::new()
@@ -259,7 +206,7 @@ pub fn handle_lock_nft(
 
 fn create_vtoken(
     storage: &mut dyn Storage,
-    env: &Env,
+    env: Env,
     locking_period: LockingPeriod,
     period: u64,
     weight: Decimal,
@@ -341,83 +288,74 @@ pub fn handle_withdraw(
     env: Env,
     info: MessageInfo,
     denom: String,
-    amount: u64,
     locking_period: LockingPeriod,
 ) -> Result<Response, ContractError> {
-    // Load the token
-    let mut vtokens = VTOKENS.load(deps.storage, (info.sender.clone(), &denom))?;
+    if info.funds.len() != 0 {
+        return Err(ContractError::FundsNotAllowed {});
+    }
 
-    // Retrive the tokens with the given locking period
-    let vtoken: Vec<(usize, &Vtoken)> = vtokens
+    // Load the token
+    let vtokens = VTOKENS.may_load(deps.storage, (info.sender.clone(), &denom))?;
+
+    if let None = vtokens {
+        return Err(ContractError::NotFound {
+            msg: format!("No tokens found for {:?}", denom),
+        });
+    }
+
+    let mut vtokens_denom = vtokens.unwrap();
+
+    // Retrive unlocked tokens with the given locking period
+    let vtokens: Vec<(usize, &Vtoken)> = vtokens_denom
         .iter()
         .enumerate()
-        .filter(|s| s.1.period == locking_period)
+        .filter(|s| s.1.period == locking_period && s.1.end_time < env.block.time)
         .collect();
 
-    if vtoken.is_empty() {
+    // No unlocked tokens
+    if vtokens.is_empty() {
         return Err(ContractError::NotFound {
-            msg: "No token for given locking period".into(),
+            msg: format!("No unlocked tokens found for {:?}", locking_period),
         });
     }
 
-    // If the tokens haven't unlocked then return Err
-    if let Status::Locked = vtoken[0].1.status {
-        if vtoken[0].1.end_time > env.block.time {
-            return Err(ContractError::NotUnlocked {});
-        }
+    // Calculate total withdrawable amount and remove the corresponding VToken
+    let mut withdrawable = 0u128;
+    let mut indices: Vec<usize> = vec![];
+    for (index, vtoken) in vtokens {
+        withdrawable += vtoken.token.amount.u128();
+        indices.push(index);
     }
-
-    // Withdraw amount can't be greater unlocked
-    if vtoken[0].1.token.amount < Uint128::from(amount) {
-        return Err(ContractError::InsufficientFunds {
-            funds: vtoken[0].1.token.amount.u128(),
-        });
+    for index in indices {
+        vtokens_denom.remove(index);
     }
-
-    let index = vtoken[0].0;
-    let vtoken = vtoken[0].1.to_owned();
-
-    let PeriodWeight { weight, period: _ } =
-        get_period(STATE.load(deps.as_ref().storage)?, locking_period.clone())?;
-
-    // balance post withdrawal
-    let token_balance = vtoken.token.amount.sub(Uint128::from(amount));
-    let vtoken_balance = vtoken.vtoken.amount.sub(Uint128::from(amount) * weight);
-    // Update token balance
-    if token_balance.is_zero() {
-        vtokens.remove(index);
+    // Update VTOKENS
+    if vtokens_denom.is_empty() {
+        VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
     } else {
-        vtokens[index].token.amount = token_balance;
-        vtokens[index].vtoken.amount = vtoken_balance;
-        vtokens[index].status = Status::Unlocked;
-    }
-    // Save the changes to VTOKENS
-    if vtokens.len() == 0 {
-        VTOKENS.remove(deps.storage, (info.sender.clone(), &info.funds[0].denom));
-    } else {
-        VTOKENS.save(
-            deps.storage,
-            (info.sender.clone(), &info.funds[0].denom),
-            &vtokens,
-        )?;
-    }
+        VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &vtokens_denom)?;
+    };
 
     // Update nft
     let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
-    let denom_index: Vec<(usize, &Vtoken)> = nft
+    let denom_indicies: Vec<(usize, &Vtoken)> = nft
         .vtokens
         .iter()
         .enumerate()
-        .filter(|el| el.1.token.denom == denom && el.1.period == locking_period.clone())
+        .filter(|el| {
+            el.1.token.denom == denom
+                && el.1.period == locking_period
+                && el.1.end_time < env.block.time
+        })
         .collect();
 
-    let index = denom_index[0].0;
-    if token_balance.is_zero() {
+    // Remove the unlocked tokens
+    let mut indices: Vec<usize> = vec![];
+    for (index, _) in denom_indicies.into_iter() {
+        indices.push(index);
+    }
+    for index in indices {
         nft.vtokens.remove(index);
-    } else {
-        nft.vtokens[index].token.amount = token_balance;
-        nft.vtokens[index].vtoken.amount = vtoken_balance;
-        nft.vtokens[index].status = Status::Unlocked;
     }
     TOKENS.save(deps.storage, info.sender.clone(), &nft)?;
 
@@ -426,11 +364,11 @@ pub fn handle_withdraw(
             to_address: info.sender.to_string(),
             amount: vec![Coin {
                 denom,
-                amount: Uint128::from(amount),
+                amount: Uint128::from(withdrawable),
             }],
         })
         .add_attribute("action", "Withdraw")
-        .add_attribute("Recipent", info.sender))
+        .add_attribute("from", info.sender))
 }
 
 fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeight, ContractError> {
@@ -450,7 +388,6 @@ pub fn handle_transfer(
     recipient: String,
     locking_period: LockingPeriod,
     denom: String,
-    calltype: Option<CallType>,
 ) -> Result<Response, ContractError> {
     let recipient = deps.api.addr_validate(&recipient)?;
 
@@ -1061,7 +998,6 @@ mod tests {
         let msg = ExecuteMsg::Lock {
             app_id: 12,
             locking_period: LockingPeriod::T1,
-            calltype: None,
         };
 
         // Successful execution
@@ -1127,7 +1063,6 @@ mod tests {
             info.clone(),
             10,
             LockingPeriod::T1,
-            None,
         )
         .unwrap();
 
@@ -1138,7 +1073,6 @@ mod tests {
             info.clone(),
             10,
             LockingPeriod::T2,
-            None,
         )
         .unwrap();
 
@@ -1201,7 +1135,6 @@ mod tests {
             info.clone(),
             10,
             LockingPeriod::T1,
-            None,
         )
         .unwrap();
 
@@ -1215,7 +1148,6 @@ mod tests {
             info.clone(),
             10,
             LockingPeriod::T1,
-            Some(CallType::UpdatePeriod),
         )
         .unwrap();
 
@@ -1260,7 +1192,6 @@ mod tests {
             info.clone(),
             10,
             LockingPeriod::T1,
-            None,
         )
         .unwrap();
 
@@ -1274,7 +1205,6 @@ mod tests {
             info.clone(),
             10,
             LockingPeriod::T2,
-            None,
         )
         .unwrap();
 
@@ -1320,7 +1250,6 @@ mod tests {
             info.clone(),
             10,
             LockingPeriod::T1,
-            None,
         )
         .unwrap_err();
         match res {
@@ -1343,7 +1272,6 @@ mod tests {
         let msg = ExecuteMsg::Lock {
             app_id: 12,
             locking_period: LockingPeriod::T1,
-            calltype: None,
         };
 
         let owner = Addr::unchecked("owner");
@@ -1359,7 +1287,6 @@ mod tests {
             env.clone(),
             info.clone(),
             info.funds[0].denom.clone(),
-            10,
             LockingPeriod::T1,
         )
         .unwrap();
@@ -1402,7 +1329,6 @@ mod tests {
             env.clone(),
             info.clone(),
             info.funds[0].denom.clone(),
-            90,
             LockingPeriod::T1,
         )
         .unwrap();
@@ -1436,7 +1362,6 @@ mod tests {
             env.clone(),
             info.clone(),
             DENOM.to_string(),
-            100u64,
             LockingPeriod::T1,
         )
         .unwrap_err();
@@ -1459,7 +1384,6 @@ mod tests {
         let msg = ExecuteMsg::Lock {
             app_id: 12,
             locking_period: LockingPeriod::T1,
-            calltype: None,
         };
 
         let owner = Addr::unchecked("owner");
@@ -1471,14 +1395,13 @@ mod tests {
             env.clone(),
             info.clone(),
             DENOM.to_string(),
-            120,
             LockingPeriod::T1,
         )
         .unwrap_err();
-        match res {
-            ContractError::NotUnlocked { .. } => {}
-            e => panic!("{:?}", e),
-        };
+        // match res {
+        //     ContractError::NotUnlocked { .. } => {}
+        //     e => panic!("{:?}", e),
+        // };
     }
 
     #[test]
@@ -1494,20 +1417,19 @@ mod tests {
         let msg = ExecuteMsg::Lock {
             app_id: 12,
             locking_period: LockingPeriod::T1,
-            calltype: None,
         };
 
         let owner = Addr::unchecked("owner");
         let info = mock_info("owner", &coins(100, DENOM.to_string()));
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
+        let info = mock_info("owner", &[]);
         let res = handle_withdraw(
             deps.as_mut(),
             env.clone(),
             info.clone(),
             DENOM.to_string(),
-            10,
-            LockingPeriod::T2,
+            LockingPeriod::T1,
         )
         .unwrap_err();
         match res {
@@ -1529,19 +1451,18 @@ mod tests {
         let msg = ExecuteMsg::Lock {
             app_id: 12,
             locking_period: LockingPeriod::T1,
-            calltype: None,
         };
 
         let owner = Addr::unchecked("owner");
         let info = mock_info("owner", &coins(100, DENOM.to_string()));
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
+        let info = mock_info("owner", &[]);
         let res = handle_withdraw(
             deps.as_mut(),
             env.clone(),
             info.clone(),
             "DNM1".to_string(),
-            10,
             LockingPeriod::T1,
         )
         .unwrap_err();
@@ -1564,7 +1485,6 @@ mod tests {
         let msg = ExecuteMsg::Lock {
             app_id: 12,
             locking_period: LockingPeriod::T1,
-            calltype: None,
         };
 
         let owner = Addr::unchecked("owner");
@@ -1581,7 +1501,6 @@ mod tests {
             recipent: recipient.to_string(),
             locking_period: LockingPeriod::T1,
             denom: DENOM.to_string(),
-            calltype: None,
         };
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
         assert_eq!(res.messages.len(), 0);
@@ -1633,15 +1552,7 @@ mod tests {
 
         // Create token for recipient
         let info = mock_info("recipient", &coins(100, denom2.to_string()));
-        handle_lock_nft(
-            deps.as_mut(),
-            env.clone(),
-            info,
-            12,
-            LockingPeriod::T1,
-            None,
-        )
-        .unwrap();
+        handle_lock_nft(deps.as_mut(), env.clone(), info, 12, LockingPeriod::T1).unwrap();
 
         // Create tokens for owner == sender
         let info = mock_info("owner", &coins(100, denom1.to_string()));
@@ -1651,7 +1562,6 @@ mod tests {
             info.clone(),
             12,
             LockingPeriod::T1,
-            None,
         )
         .unwrap();
 
@@ -1665,7 +1575,6 @@ mod tests {
             recipent: recipient.to_string(),
             locking_period: LockingPeriod::T1,
             denom: denom1.to_string(),
-            calltype: None,
         };
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
         assert_eq!(res.messages.len(), 0);
@@ -1725,27 +1634,11 @@ mod tests {
 
         // Lock tokens for sender
         let info = mock_info(sender.as_str(), &coins(1000, DENOM.to_string()));
-        handle_lock_nft(
-            deps.as_mut(),
-            env.clone(),
-            info,
-            12,
-            LockingPeriod::T1,
-            None,
-        )
-        .unwrap();
+        handle_lock_nft(deps.as_mut(), env.clone(), info, 12, LockingPeriod::T1).unwrap();
 
         // Lock tokens for recipient
         let info = mock_info(recipient.as_str(), &coins(1000, DENOM.to_string()));
-        handle_lock_nft(
-            deps.as_mut(),
-            env.clone(),
-            info,
-            12,
-            LockingPeriod::T1,
-            None,
-        )
-        .unwrap();
+        handle_lock_nft(deps.as_mut(), env.clone(), info, 12, LockingPeriod::T1).unwrap();
 
         // Transfer tokens to recipient
         let info = mock_info(sender.as_str(), &[]);
@@ -1756,7 +1649,6 @@ mod tests {
             recipient.to_string(),
             LockingPeriod::T1,
             DENOM.to_string(),
-            None,
         )
         .unwrap();
 

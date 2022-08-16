@@ -19,15 +19,6 @@ pub enum ContractError {
     #[error("Insufficient funds: {funds}")]
     InsufficientFunds { funds: u128 },
 
-    #[error("The locking period is still active.")]
-    TimeNotOvered {},
-
-    #[error("The token is Allready Unlocked.")]
-    AllreadyUnLocked {},
-
-    #[error("The token is in Locked State.")]
-    NotUnlocked {},
-
-    #[error("The token is not in Locked state")]
-    NotLocked {},
+    #[error("Funds should not be sent with the chosen operation")]
+    FundsNotAllowed {},
 }
