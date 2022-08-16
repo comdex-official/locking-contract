@@ -1939,7 +1939,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_old_user_different_denom() {
+    fn transfer_different_denom() {
         let mut deps = mock_dependencies();
         let env = mock_env();
         let info = mock_info("owner", &[]);
@@ -2055,5 +2055,95 @@ mod tests {
         assert_eq!(recipient_nft.vtokens[0].token.amount.u128(), 100);
         assert_eq!(recipient_nft.vtokens[0].token.denom, denom2.to_string());
         assert_eq!(recipient_nft.vtokens[1], locked_vtokens[0]);
+    }
+
+    #[test]
+    fn transfer_same_denom() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
+
+        let sender = Addr::unchecked("sender");
+        let recipient = Addr::unchecked("recipient");
+
+        // Lock tokens for sender
+        let info = mock_info(sender.as_str(), &coins(1000, DENOM.to_string()));
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            12,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // Lock tokens for recipient
+        let info = mock_info(recipient.as_str(), &coins(1000, DENOM.to_string()));
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            12,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // Transfer tokens to recipient
+        let info = mock_info(sender.as_str(), &[]);
+        handle_transfer(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            recipient.to_string(),
+            LockingPeriod::T1,
+            DENOM.to_string(),
+            None,
+        )
+        .unwrap();
+
+        // Check LOCKED
+        LOCKED
+            .load(deps.as_ref().storage, sender.clone())
+            .unwrap_err();
+
+        let recipient_locked = LOCKED
+            .load(deps.as_ref().storage, recipient.clone())
+            .unwrap();
+        assert_eq!(recipient_locked.len(), 1);
+        assert_eq!(recipient_locked[0].amount.u128(), 2000);
+        assert_eq!(recipient_locked[0].denom, DENOM.to_string());
+
+        // Check UNLOCKED
+        UNLOCKED
+            .load(deps.as_ref().storage, sender.clone())
+            .unwrap_err();
+
+        UNLOCKED
+            .load(deps.as_ref().storage, recipient.clone())
+            .unwrap_err();
+
+        // Check VTOKENS
+        VTOKENS
+            .load(deps.as_ref().storage, (sender.clone(), DENOM))
+            .unwrap_err();
+
+        let recipient_vtokens = VTOKENS
+            .load(deps.as_ref().storage, (recipient.clone(), DENOM))
+            .unwrap();
+        assert_eq!(recipient_vtokens.len(), 1);
+        assert_eq!(recipient_vtokens[0].token.amount.u128(), 2000);
+        assert_eq!(recipient_vtokens[0].token.denom, DENOM.to_string());
+        assert_eq!(recipient_vtokens[0].vtoken.amount.u128(), 500);
+        assert_eq!(recipient_vtokens[0].vtoken.denom, "vTKN".to_string());
+        assert_eq!(recipient_vtokens[0].start_time, env.block.time);
+        assert_eq!(
+            recipient_vtokens[0].end_time,
+            env.block.time.plus_seconds(imsg.t1.period)
+        );
     }
 }
