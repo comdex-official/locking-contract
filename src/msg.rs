@@ -1,5 +1,5 @@
 use crate::state::{CallType, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
-use cosmwasm_std::{Addr, Coin};
+use cosmwasm_std::{Addr, Coin,Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +11,9 @@ pub struct InstantiateMsg {
     pub t4: PeriodWeight,
     pub voting_period: u64,
     pub vesting_contract: Addr,
+    pub foundation_addr: Vec<Addr>,
+    pub foundation_percentage : Decimal,
+    pub surplus_asset_id:u64
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -56,6 +59,9 @@ pub enum ExecuteMsg {
         locking_period: LockingPeriod,
         denom: String,
         calltype: Option<CallType>,
+    },
+    FoundationRewards{
+        proposal_id: u64,
     },
 }
 

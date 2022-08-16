@@ -1,6 +1,6 @@
 use cosmwasm_std::{Addr, Timestamp};
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use cw_storage_plus::{Item, Map};
+use cw_storage_plus::{Item, Map ,SnapshotMap};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,8 @@ pub enum LockingPeriod {
     T3,
     T4,
 }
+
+
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -80,6 +82,10 @@ pub struct State {
     pub t4: PeriodWeight,
     pub num_tokens: u64,
     pub vesting_contract: Addr,
+    pub foundation_addr: Vec<Addr>,
+    pub foundation_percentage: Decimal,
+    pub voting_period:u64,
+    pub surplus_asset_id:u64
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -106,6 +112,7 @@ pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");
 // will only contain four Vtokens, because of the 4 LockingPeriods.
 pub const VTOKENS: Map<(Addr, &str), Vec<Vtoken>> = Map::new("Vtokens by NFT");
 
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Proposal {
     pub app_id: u64,
@@ -114,9 +121,14 @@ pub struct Proposal {
     pub extended_pair: Vec<u64>,
     pub emission_completed: bool,
     pub rebase_completed: bool,
+    pub foundation_emission_completed:bool,
     pub emission_distributed: u128,
     pub rebase_distributed: u128,
+    pub foundation_distributed : u128,
     pub total_voted_weight: u128,
+    pub total_surplus: Coin,
+    pub height : u64
+
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -136,6 +148,13 @@ pub struct Vote {
     pub bribe_claimed: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Rewards {
+    pub bribe: Vec<Coin>,
+    pub rebase: Coin,
+}
+
+
 pub const VOTINGPERIOD: Item<u64> = Item::new("Voting_period");
 
 pub const PROPOSALCOUNT: Item<u64> = Item::new("Voting_period");
@@ -153,3 +172,9 @@ pub const EMISSION: Map<u64, Emission> = Map::new("Proposal vote");
 pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("has voted");
 
 pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("has voted");
+
+pub const CLAIMABLEREWARD: Map<(u64,Addr), Rewards> = Map::new("has voted");
+
+pub const MAXPROPOSALCLAIMED: Map<(u64,Addr), u64> = Map::new("has voted");
+
+pub const COMPLETEDPROPOSALS: Map<u64,Vec<u64>>= Map::new("has voted");

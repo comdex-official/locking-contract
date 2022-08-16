@@ -78,6 +78,13 @@ pub enum ComdexQuery {
     AddESMTriggerParamsForAppQuery{
         app_id: u64,
     },
+    ExtendedPairByApp{
+        app_id: u64,
+    },
+    CheckSurplusReward{
+        app_id: u64,
+        asset_id: u64
+    },
 }
 
 impl CustomQuery for ComdexQuery {}
@@ -113,4 +120,17 @@ pub struct GetAssetDataResponse {
 pub struct MessageValidateResponse {
     pub found: bool,
     pub err: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct GetExtendedPairByAppResponse {
+    pub ext_pair: Vec<u64>,
+}
+
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct GetSurplusRewardAmount{
+    pub amount: Coin,
 }
