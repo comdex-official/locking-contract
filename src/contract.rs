@@ -389,6 +389,9 @@ pub fn handle_transfer(
     locking_period: LockingPeriod,
     denom: String,
 ) -> Result<Response, ContractError> {
+    if info.funds.len() != 0 {
+        return Err(ContractError::FundsNotAllowed {});
+    }
     let recipient = deps.api.addr_validate(&recipient)?;
 
     // Load the denom that needs to be transfered
@@ -1139,6 +1142,7 @@ mod tests {
         .unwrap();
 
         // forward the time, inside 1 week
+        let old_start_time = env.block.time;
         env.block.time = env.block.time.plus_seconds(100_000);
 
         let info = mock_info("owner", &coins(100, DENOM.to_string()));
@@ -1155,13 +1159,13 @@ mod tests {
         let nft = TOKENS
             .load(deps.as_ref().storage, owner_addr.clone())
             .unwrap();
-        assert_eq!(nft.vtokens.len(), 1);
-        assert_eq!(nft.vtokens[0].token.amount.u128(), 200u128);
-        assert_eq!(nft.vtokens[0].vtoken.amount.u128(), 50u128);
-        assert_eq!(nft.vtokens[0].start_time, env.block.time);
+        assert_eq!(nft.vtokens.len(), 2);
+        assert_eq!(nft.vtokens[0].token.amount.u128(), 100u128);
+        assert_eq!(nft.vtokens[0].vtoken.amount.u128(), 25u128);
+        assert_eq!(nft.vtokens[0].start_time, old_start_time);
         assert_eq!(
             nft.vtokens[0].end_time,
-            env.block.time.plus_seconds(imsg.t1.period)
+            old_start_time.plus_seconds(imsg.t1.period)
         );
         assert_eq!(nft.vtokens[0].period, LockingPeriod::T1);
         assert_eq!(nft.vtokens[0].status, Status::Locked);
@@ -1282,11 +1286,12 @@ mod tests {
         env.block.time = env.block.time.plus_seconds(imsg.t1.period + 1u64);
 
         // Withdrawing 10 Tokens
+        let info = mock_info("owner", &[]);
         let res = handle_withdraw(
             deps.as_mut(),
             env.clone(),
             info.clone(),
-            info.funds[0].denom.clone(),
+            DENOM.to_string(),
             LockingPeriod::T1,
         )
         .unwrap();
@@ -1296,7 +1301,7 @@ mod tests {
             res.messages[0].msg,
             CosmosMsg::Bank(BankMsg::Send {
                 to_address: info.sender.to_string(),
-                amount: vec![coin(10, DENOM.to_string())]
+                amount: vec![coin(100, DENOM.to_string())]
             })
         );
 
@@ -1306,49 +1311,21 @@ mod tests {
         assert_eq!(vtoken_balance1, vtoken_balance2);
 
         // Check correct update in VTOKENS
-        // Should left 100 - 10 = 90 tokens
         let vtoken = VTOKENS
-            .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
-            .unwrap();
-        assert_eq!(vtoken.len(), 1);
-        assert_eq!(vtoken[0].token.amount.u128(), 90u128);
-        let vtoken_balance = Uint128::from(25u64).sub(Uint128::from(10u64) * imsg.t1.weight);
-        assert_eq!(vtoken[0].vtoken.amount.u128(), vtoken_balance.u128());
-        assert_eq!(vtoken[0].status, Status::Unlocked);
+            .load(&deps.storage, (info.sender.clone(), DENOM))
+            .unwrap_err();
+        // assert_eq!(vtoken.len(), 1);
+        // assert_eq!(vtoken[0].token.amount.u128(), 90u128);
+        // let vtoken_balance = Uint128::from(25u64).sub(Uint128::from(10u64) * imsg.t1.weight);
+        // assert_eq!(vtoken[0].vtoken.amount.u128(), vtoken_balance.u128());
+        // assert_eq!(vtoken[0].status, Status::Unlocked);
 
         // Check correct update in nft
         let nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
-        assert_eq!(nft.vtokens.len(), 1);
-        assert_eq!(nft.vtokens[0].token.amount.u128(), 90u128);
-        assert_eq!(nft.vtokens[0].vtoken.amount.u128(), vtoken_balance.u128());
-        assert_eq!(nft.vtokens[0].status, Status::Unlocked);
-
-        // Withdrawing All Tokens and Should remove the vtoken.
-        let res = handle_withdraw(
-            deps.as_mut(),
-            env.clone(),
-            info.clone(),
-            info.funds[0].denom.clone(),
-            LockingPeriod::T1,
-        )
-        .unwrap();
-        assert_eq!(res.messages.len(), 1);
-        assert_eq!(res.attributes.len(), 2);
-        assert_eq!(
-            res.messages[0].msg,
-            CosmosMsg::Bank(BankMsg::Send {
-                to_address: info.sender.to_string(),
-                amount: vec![coin(90, DENOM.to_string())]
-            })
-        );
-
-        let res = VTOKENS
-            .load(&deps.storage, (info.sender.clone(), &info.funds[0].denom))
-            .unwrap_err();
-        match res {
-            StdError::NotFound { .. } => {}
-            e => panic!("{:?}", e),
-        };
+        assert_eq!(nft.vtokens.len(), 0);
+        // assert_eq!(nft.vtokens[0].token.amount.u128(), 90u128);
+        // assert_eq!(nft.vtokens[0].vtoken.amount.u128(), vtoken_balance.u128());
+        // assert_eq!(nft.vtokens[0].status, Status::Unlocked);
     }
 
     #[test]
@@ -1366,7 +1343,7 @@ mod tests {
         )
         .unwrap_err();
         match res {
-            ContractError::Std(StdError::NotFound { .. }) => {}
+            ContractError::NotFound { .. } => {}
             e => panic!("{:?}", e),
         };
     }
@@ -1467,7 +1444,7 @@ mod tests {
         )
         .unwrap_err();
         match res {
-            ContractError::Std(StdError::NotFound { .. }) => {}
+            ContractError::NotFound { .. } => {}
             e => panic!("{:?}", e),
         };
     }
@@ -1502,6 +1479,8 @@ mod tests {
             locking_period: LockingPeriod::T1,
             denom: DENOM.to_string(),
         };
+
+        let info = mock_info(owner.as_str(), &[]);
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
         assert_eq!(res.messages.len(), 0);
         assert_eq!(res.attributes.len(), 3);
@@ -1576,6 +1555,8 @@ mod tests {
             locking_period: LockingPeriod::T1,
             denom: denom1.to_string(),
         };
+
+        let info = mock_info(owner.as_str(), &[]);
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
         assert_eq!(res.messages.len(), 0);
         assert_eq!(res.attributes.len(), 3);
