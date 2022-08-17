@@ -1,15 +1,37 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ExecuteMsg",
-  "anyOf": [
+  "oneOf": [
     {
       "type": "object",
       "required": [
-        "increment"
+        "vote_proposal"
       ],
       "properties": {
-        "increment": {
-          "type": "object"
+        "vote_proposal": {
+          "type": "object",
+          "required": [
+            "app_id",
+            "extended_pair",
+            "proposal_id"
+          ],
+          "properties": {
+            "app_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "extended_pair": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
         }
       },
       "additionalProperties": false
@@ -17,23 +39,251 @@
     {
       "type": "object",
       "required": [
-        "reset"
+        "raise_proposal"
       ],
       "properties": {
-        "reset": {
+        "raise_proposal": {
           "type": "object",
           "required": [
-            "count"
+            "app_id"
           ],
           "properties": {
-            "count": {
+            "app_id": {
               "type": "integer",
-              "format": "int32"
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "claim_bribe"
+      ],
+      "properties": {
+        "claim_bribe": {
+          "type": "object",
+          "required": [
+            "proposal_id"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "bribe"
+      ],
+      "properties": {
+        "bribe": {
+          "type": "object",
+          "required": [
+            "extended_pair",
+            "proposal_id"
+          ],
+          "properties": {
+            "extended_pair": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "emmission"
+      ],
+      "properties": {
+        "emmission": {
+          "type": "object",
+          "required": [
+            "proposal_id"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "rebase"
+      ],
+      "properties": {
+        "rebase": {
+          "type": "object",
+          "required": [
+            "proposal_id"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "claim_rebase"
+      ],
+      "properties": {
+        "claim_rebase": {
+          "type": "object",
+          "required": [
+            "proposal_id"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "lock"
+      ],
+      "properties": {
+        "lock": {
+          "type": "object",
+          "required": [
+            "app_id",
+            "locking_period"
+          ],
+          "properties": {
+            "app_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "locking_period": {
+              "$ref": "#/definitions/LockingPeriod"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "withdraw"
+      ],
+      "properties": {
+        "withdraw": {
+          "type": "object",
+          "required": [
+            "denom",
+            "lockingperiod"
+          ],
+          "properties": {
+            "denom": {
+              "type": "string"
+            },
+            "lockingperiod": {
+              "$ref": "#/definitions/LockingPeriod"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "transfer"
+      ],
+      "properties": {
+        "transfer": {
+          "type": "object",
+          "required": [
+            "denom",
+            "locking_period",
+            "recipent"
+          ],
+          "properties": {
+            "denom": {
+              "type": "string"
+            },
+            "locking_period": {
+              "$ref": "#/definitions/LockingPeriod"
+            },
+            "recipent": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "foundation_rewards"
+      ],
+      "properties": {
+        "foundation_rewards": {
+          "type": "object",
+          "required": [
+            "proposal_id"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
             }
           }
         }
       },
       "additionalProperties": false
     }
-  ]
+  ],
+  "definitions": {
+    "LockingPeriod": {
+      "type": "string",
+      "enum": [
+        "t1",
+        "t2",
+        "t3",
+        "t4"
+      ]
+    }
+  }
 }

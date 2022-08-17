@@ -5,11 +5,8 @@ use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Deps, Env, MessageInfo, StdError, StdResult,
 };
 
-use crate::msg::{
-    IssuedNftResponse, IssuedVtokensResponse, LockedTokensResponse, QueryMsg,
-    UnlockedTokensResponse,
-};
-use crate::state::{Status, TOKENS, VTOKENS,STATE,SUPPLY,APPCURRENTPROPOSAL,PROPOSAL,BRIBES_BY_PROPOSAL,VOTERS_VOTE,VOTERSPROPOSAL,MAXPROPOSALCLAIMED,COMPLETEDPROPOSALS, self,State,Vtoken,TokenSupply,Proposal,Vote};
+use crate::msg::{IssuedNftResponse, QueryMsg,};
+use crate::state::{TOKENS, VTOKENS,STATE,SUPPLY,APPCURRENTPROPOSAL,PROPOSAL,BRIBES_BY_PROPOSAL,VOTERS_VOTE,VOTERSPROPOSAL,MAXPROPOSALCLAIMED,COMPLETEDPROPOSALS,State,Vtoken,TokenSupply,Proposal,Vote};
 use crate::contract::{calculate_bribe_reward};
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(
@@ -37,7 +34,6 @@ pub fn query_state(
     deps: Deps<ComdexQuery>,
     _env: Env,
     _info: MessageInfo,
-    address: String,
 ) -> StdResult<State> {
     let state=STATE.may_load(deps.storage)?;
     match state {
@@ -69,8 +65,8 @@ pub fn query_issued_nft(
 
 pub fn query_issued_vtokens(
     deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
+    _env: Env,
+    _info: MessageInfo,
     address: Addr,
     denom: String,
 ) -> StdResult<Vec<Vtoken>> {
@@ -87,8 +83,8 @@ pub fn query_issued_vtokens(
 
 pub fn query_issued_supply(
     deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
+    _env: Env,
+    _info: MessageInfo,
     denom: String,
 ) ->StdResult< TokenSupply>{
     let supply= SUPPLY.may_load(deps.storage,&denom)?;
@@ -97,8 +93,8 @@ pub fn query_issued_supply(
 
 pub fn query_current_proposal(
     deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
+    _env: Env,
+    _info: MessageInfo,
     app_id: u64,
 ) ->StdResult<u64>{
     let supply= APPCURRENTPROPOSAL.may_load(deps.storage,app_id)?;
@@ -107,8 +103,8 @@ pub fn query_current_proposal(
 
 pub fn query_proposal(
     deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
+    _env: Env,
+    _info: MessageInfo,
     proposal_id: u64,
 ) ->StdResult<Proposal>{
     let supply= PROPOSAL.may_load(deps.storage,proposal_id)?;
@@ -117,8 +113,8 @@ pub fn query_proposal(
 
 pub fn query_bribe(
     deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
+    _env: Env,
+    _info: MessageInfo,
     app_id:u64,
     proposal_id: u64,
 ) ->StdResult<Vec<Coin>>{
@@ -128,8 +124,8 @@ pub fn query_bribe(
 
 pub fn query_is_voted(
     deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
+    _env: Env,
+    _info: MessageInfo,
     address:Addr,
     proposal_id: u64,
 ) ->StdResult<bool>{
@@ -139,8 +135,8 @@ pub fn query_is_voted(
 
 pub fn query_vote(
     deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
+    _env: Env,
+    _info: MessageInfo,
     address:Addr,
     proposal_id: u64,
 ) ->StdResult<Vote>{

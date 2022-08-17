@@ -128,7 +128,13 @@ pub enum ComdexMessages {
         app_id: u64,
         amount :u128,
         contract_addr : Addr,
-        }
+        },
+    MsgGetSurplusFund{
+        app_id: u64,
+        asset_id: u64,
+        contract_addr: Addr,
+        amount: Coin,
+    }    
         
 
 }

@@ -1,4 +1,4 @@
-use crate::state::{CallType, LockingPeriod, PeriodWeight, TokenInfo, Vtoken, Emission};
+use crate::state::{ LockingPeriod, PeriodWeight, TokenInfo, Vtoken, Emission};
 use cosmwasm_std::{Addr, Coin,Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -104,6 +104,10 @@ pub enum QueryMsg {
         app_id:u64
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct MigrateMsg {}
+
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct IssuedNftResponse {

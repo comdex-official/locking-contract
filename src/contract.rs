@@ -2,14 +2,12 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Addr, BankMsg, Coin, Decimal, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, Storage, Uint128, WasmQuery,Deps,StdResult,CosmosMsg
-};
+    Response, Storage, Uint128, WasmQuery,Deps,StdResult,StdError};
 use cw2::set_contract_version;
 use std::ops::{ Div, Mul};
-
 use crate::error::ContractError;
 use crate::helpers::{get_token_supply, query_app_exists, query_get_asset_data,query_extended_pair_by_app,query_surplus_reward,query_whitelisted_asset};
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg , };
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg ,MigrateMsg};
 use crate::state::{
      Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, EMISSION, PROPOSAL,
     PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE, VOTINGPERIOD,MAXPROPOSALCLAIMED,COMPLETEDPROPOSALS
@@ -21,7 +19,7 @@ use crate::state::{
 use comdex_bindings::{ComdexMessages, ComdexQuery};
 
 // version info for migration info
-const CONTRACT_NAME: &str = "crates.io:{{project-name}}";
+const CONTRACT_NAME: &str = "crates.io:locking_contract";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -43,7 +41,7 @@ pub fn instantiate(
         surplus_asset_id:msg.surplus_asset_id,
         voting_period: msg.voting_period,
     };
-
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     STATE.save(deps.storage, &state)?;
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     VOTINGPERIOD.save(deps.storage, &msg.voting_period)?;
@@ -753,10 +751,10 @@ pub fn calculate_rebase_reward(
     for vtoken in vtokens.clone()
     {
         match vtoken.period{
-            T1 =>locked_t1+=vtoken.vtoken.amount.u128(),
-            T2 =>locked_t2+=vtoken.vtoken.amount.u128(),
-            T3 =>locked_t3+=vtoken.vtoken.amount.u128(),
-            T4 =>locked_t4+=vtoken.vtoken.amount.u128(),
+            LockingPeriod::T1 =>locked_t1+=vtoken.vtoken.amount.u128(),
+            LockingPeriod::T2 =>locked_t2+=vtoken.vtoken.amount.u128(),
+            LockingPeriod::T3 =>locked_t3+=vtoken.vtoken.amount.u128(),
+            LockingPeriod::T4 =>locked_t4+=vtoken.vtoken.amount.u128(),
         }
     }
 
@@ -910,14 +908,20 @@ pub fn emission(
     emission.distributed_rewards+=effective_emission.u128();
 
     let surplus=query_surplus_reward(deps.as_ref(),app_id,state.surplus_asset_id)?;
-    proposal.total_surplus=surplus;
+    proposal.total_surplus=surplus.clone();
     EMISSION.save(deps.storage, proposal.app_id, &emission)?;
     PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
     let mut msg:Vec<ComdexMessages>=vec![];
     let emission_msg=ComdexMessages::MsgEmissionRewards { app_id: app_id, emission_amount: effective_emission.u128(), extended_pair: proposal.extended_pair, voting_ratio: votes };
-    let rebase_msg=ComdexMessages::MsgRebaseMint { app_id: app_id, amount: proposal.rebase_distributed, contract_addr: env.contract.address };
+    let rebase_msg=ComdexMessages::MsgRebaseMint { app_id: app_id, amount: proposal.rebase_distributed, contract_addr: env.contract.address.clone() };
+    let surplus_msg=ComdexMessages::MsgGetSurplusFund { app_id: app_id, asset_id: state.surplus_asset_id, contract_addr: env.contract.address, amount: surplus.clone() };
     msg.push(emission_msg);
     msg.push(rebase_msg);
+
+    if surplus.amount!=Uint128::new(0){
+    msg.push(surplus_msg);
+    }
+
     let mut all_proposals=COMPLETEDPROPOSALS.load(deps.storage,app_id)?;
     all_proposals.push(proposal_id);
     COMPLETEDPROPOSALS.save(deps.storage,app_id,&all_proposals)?;
@@ -1070,13 +1074,34 @@ pub fn raise_proposal(
 }
 
 
+
+#[entry_point]
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    let ver = cw2::get_contract_version(deps.storage)?;
+    // ensure we are migrating from an allowed contract
+    if ver.contract != CONTRACT_NAME {
+        return Err(StdError::generic_err("Can only upgrade from same type").into());
+    }
+    // note: better to do proper semver compare, but string compare *usually* works
+    if ver.version >= CONTRACT_VERSION.to_string() {
+        return Err(StdError::generic_err("Cannot upgrade from a newer version").into());
+    }
+
+    // set the new version
+    cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    // do any desired state migrations...
+
+    Ok(Response::default())
+}
+
 #[cfg(test)]
 mod tests {
     use std::marker::PhantomData;
 
     use super::*;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{coin, coins, Addr, Api, OwnedDeps, Querier, StdError};
+    use cosmwasm_std::{coin, coins, Addr, OwnedDeps, StdError,CosmosMsg};
 
     const DENOM: &str = "TKN";
 
@@ -1208,7 +1233,7 @@ mod tests {
     fn lock_different_denom_and_time_period() {
         // mock values
         let mut deps = mock_dependencies();
-        let mut env = mock_env();
+        let  env = mock_env();
         let info = mock_info("sender", &coins(0, DENOM.to_string()));
 
         let imsg = init_msg();
