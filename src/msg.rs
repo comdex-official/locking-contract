@@ -86,11 +86,22 @@ pub enum QueryMsg {
     VestedTokens {
         denom: String,
     },
+
+    /// Total amount of given denom withdrawable.
+    Withdrawable {
+        address: Option<String>,
+        denom: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct IssuedNftResponse {
     pub nft: TokenInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct WithdrawableResponse {
+    pub amount: Coin,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
