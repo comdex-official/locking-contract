@@ -441,7 +441,7 @@ pub fn handle_transfer(
     recipient: String,
     locking_period: LockingPeriod,
     denom: String,
-) -> Result<Response, ContractError> {
+) -> Result<Response<ComdexMessages>, ContractError> {
     if info.funds.len() != 0 {
         return Err(ContractError::FundsNotAllowed {});
     }
@@ -1874,15 +1874,17 @@ mod tests {
         let recipient_vtokens = VTOKENS
             .load(deps.as_ref().storage, (recipient.clone(), DENOM))
             .unwrap();
-        assert_eq!(recipient_vtokens.len(), 1);
-        assert_eq!(recipient_vtokens[0].token.amount.u128(), 2000);
+        assert_eq!(recipient_vtokens.len(), 2);
+        assert_eq!(recipient_vtokens[0].token.amount.u128(), 1000);
         assert_eq!(recipient_vtokens[0].token.denom, DENOM.to_string());
-        assert_eq!(recipient_vtokens[0].vtoken.amount.u128(), 500);
+        assert_eq!(recipient_vtokens[0].vtoken.amount.u128(), 250);
         assert_eq!(recipient_vtokens[0].vtoken.denom, "vTKN".to_string());
         assert_eq!(recipient_vtokens[0].start_time, env.block.time);
         assert_eq!(
             recipient_vtokens[0].end_time,
             env.block.time.plus_seconds(imsg.t1.period)
         );
+        assert_eq!(recipient_vtokens[1].token.amount.u128(), 1000);
+        assert_eq!(recipient_vtokens[1].vtoken.amount.u128(), 250);
     }
 }
