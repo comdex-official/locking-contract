@@ -75,7 +75,7 @@ pub fn execute(
             extended_pair,
         } => bribe_proposal(deps, env, info, proposal_id, extended_pair),
 
-        ExecuteMsg::ClaimBribe { proposal_id } => claim_rewards(deps, env, info, proposal_id),
+        ExecuteMsg::ClaimReward { app_id } => claim_rewards(deps, env, info, app_id),
 
         ExecuteMsg::Emmission { proposal_id } => emission(deps, env, info, proposal_id),
 

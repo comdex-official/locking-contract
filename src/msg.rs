@@ -28,8 +28,8 @@ pub enum ExecuteMsg {
     RaiseProposal {
         app_id: u64,
     },
-    ClaimBribe {
-        proposal_id: u64,
+    ClaimReward {
+        app_id: u64,
     },
     Bribe {
         proposal_id: u64,
@@ -39,9 +39,6 @@ pub enum ExecuteMsg {
         proposal_id: u64,
     },
     Rebase {
-        proposal_id: u64,
-    },
-    ClaimRebase {
         proposal_id: u64,
     },
     Lock {
