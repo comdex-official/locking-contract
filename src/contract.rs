@@ -1,22 +1,27 @@
+use crate::error::ContractError;
+use crate::helpers::{
+    get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
+    query_surplus_reward, query_whitelisted_asset,
+};
+use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
+use crate::state::{
+    Emission, LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE,
+    SUPPLY, TOKENS, VTOKENS,
+};
+use crate::state::{
+    Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
+    MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE,
+    VOTINGPERIOD,
+};
+use comdex_bindings::{ComdexMessages, ComdexQuery};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, BankMsg, Coin, Decimal, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, Storage, Uint128, WasmQuery,Deps,StdResult,StdError};
+    to_binary, Addr, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
+    Response, StdError, StdResult, Storage, Uint128, WasmQuery,
+};
 use cw2::set_contract_version;
-use std::ops::{ Div, Mul};
-use crate::error::ContractError;
-use crate::helpers::{get_token_supply, query_app_exists, query_get_asset_data,query_extended_pair_by_app,query_surplus_reward,query_whitelisted_asset};
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg ,MigrateMsg};
-use crate::state::{
-     Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, EMISSION, PROPOSAL,
-    PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE, VOTINGPERIOD,MAXPROPOSALCLAIMED,COMPLETEDPROPOSALS
-};
-use crate::state::{
-    LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE,
-    SUPPLY, TOKENS, VTOKENS,Emission
-};
-use comdex_bindings::{ComdexMessages, ComdexQuery};
+use std::ops::{Div, Mul};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:locking_contract";
@@ -36,16 +41,16 @@ pub fn instantiate(
         t4: msg.t4,
         num_tokens: 0,
         vesting_contract: msg.vesting_contract,
-        foundation_addr:msg.foundation_addr,
+        foundation_addr: msg.foundation_addr,
         foundation_percentage: msg.foundation_percentage,
-        surplus_asset_id:msg.surplus_asset_id,
+        surplus_asset_id: msg.surplus_asset_id,
         voting_period: msg.voting_period,
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     STATE.save(deps.storage, &state)?;
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     VOTINGPERIOD.save(deps.storage, &msg.voting_period)?;
-    EMISSION.save(deps.storage, msg.emission.app_id,&msg.emission)?;
+    EMISSION.save(deps.storage, msg.emission.app_id, &msg.emission)?;
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("owner", info.sender))
@@ -70,12 +75,9 @@ pub fn execute(
             extended_pair,
         } => bribe_proposal(deps, env, info, proposal_id, extended_pair),
 
-        ExecuteMsg::ClaimBribe { proposal_id } => {
-            claim_rewards(deps, env, info, proposal_id)
-        }
+        ExecuteMsg::ClaimBribe { proposal_id } => claim_rewards(deps, env, info, proposal_id),
 
         ExecuteMsg::Emmission { proposal_id } => emission(deps, env, info, proposal_id),
-
 
         ExecuteMsg::Lock {
             app_id,
@@ -92,16 +94,12 @@ pub fn execute(
             locking_period,
             denom,
         } => handle_transfer(deps, env, info, recipent, locking_period, denom),
-        ExecuteMsg::FoundationRewards { proposal_id }=>emission_foundation(
-            deps,
-            env,
-            info,
-            proposal_id,
-        ),
+        ExecuteMsg::FoundationRewards { proposal_id } => {
+            emission_foundation(deps, env, info, proposal_id)
+        }
         _ => panic!("Not implemented"),
     }
 }
-
 
 pub fn emission_foundation(
     deps: DepsMut<ComdexQuery>,
@@ -109,32 +107,34 @@ pub fn emission_foundation(
     info: MessageInfo,
     proposal_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    //check if active proposal
+    let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+    // check emission already compluted and executed
+    if !proposal.emission_completed {
+        return Err(ContractError::CustomError {
+            val: "Emission caluclation did not take place to initiate rebase calculation"
+                .to_string(),
+        });
+    }
 
-        //check if active proposal
-        let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
-        // check emission already compluted and executed
-        if !proposal.emission_completed {
-            return Err(ContractError::CustomError {
-                val: "Emission caluclation did not take place to initiate rebase calculation"
-                    .to_string(),
-            });
-        }
+    //check if foundation emission has not taken plase for the proposal
+    if proposal.foundation_emission_completed {
+        return Err(ContractError::CustomError {
+            val: "Emission already distributed".to_string(),
+        });
+    }
 
-        //check if foundation emission has not taken plase for the proposal
-        if proposal.foundation_emission_completed {
-            return Err(ContractError::CustomError {
-                val: "Emission already distributed"
-                    .to_string(),
-            });
-        }
-
-        let state = STATE.load(deps.storage)?;
-        let foundation_addr=state.foundation_addr;
-        let foundation_emission=proposal.foundation_distributed;
-        //// addr binding pending 
-        let emission_msg=ComdexMessages::MsgFoundationEmission { app_id: proposal.app_id, amount:foundation_emission, foundation_address: foundation_addr };
-        proposal.foundation_emission_completed=true;
-        PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
+    let state = STATE.load(deps.storage)?;
+    let foundation_addr = state.foundation_addr;
+    let foundation_emission = proposal.foundation_distributed;
+    //// addr binding pending
+    let emission_msg = ComdexMessages::MsgFoundationEmission {
+        app_id: proposal.app_id,
+        amount: foundation_emission,
+        foundation_address: foundation_addr,
+    };
+    proposal.foundation_emission_completed = true;
+    PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
 
     Ok(Response::new()
         .add_messages(vec![emission_msg])
@@ -224,12 +224,11 @@ pub fn handle_lock_nft(
         });
     }
 
-
     if info.funds[0].amount.is_zero() {
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
 
-    let app_response=query_app_exists(deps.as_ref(), app_id)?;
+    let app_response = query_app_exists(deps.as_ref(), app_id)?;
     let gov_token_id = app_response.gov_token_id;
     let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
     if gov_token_denom.is_empty() || gov_token_id == 0 {
@@ -257,7 +256,6 @@ pub fn handle_lock_nft(
         .add_attribute("action", "lock")
         .add_attribute("from", info.sender))
 }
-
 
 fn create_vtoken(
     storage: &mut dyn Storage,
@@ -443,28 +441,86 @@ pub fn handle_transfer(
     recipient: String,
     locking_period: LockingPeriod,
     denom: String,
-) -> Result<Response<ComdexMessages>, ContractError> {
+) -> Result<Response, ContractError> {
     if info.funds.len() != 0 {
         return Err(ContractError::FundsNotAllowed {});
     }
     let recipient = deps.api.addr_validate(&recipient)?;
 
-    // Load the denom that needs to be transfered
-    let mut sender_vtokens = VTOKENS.load(deps.storage, (info.sender.clone(), &denom))?;
+    // Load the sender denom that needs to be transfered
+    let sender_vtokens = VTOKENS.may_load(deps.storage, (info.sender.clone(), &denom))?;
 
-    let sender_vtoken: Vec<(usize, &Vtoken)> = sender_vtokens
-        .iter()
-        .enumerate()
-        .filter(|s| s.1.token.denom == denom && s.1.period == locking_period)
-        .collect();
-
-    if sender_vtoken.is_empty() {
+    if let None = sender_vtokens {
         return Err(ContractError::NotFound {
-            msg: "No tokens found for the given denom".into(),
+            msg: format!("No tokens found for {:?}", denom),
         });
     }
-    let sender_vtoken_index = sender_vtoken[0].0;
-    let sender_vtoken_owned = sender_vtoken[0].1.to_owned();
+    let sender_denom_vtokens = sender_vtokens.unwrap();
+
+    // Load tokens with given locking period
+    let sender_vtokens_to_transfer: Vec<Vtoken> = sender_denom_vtokens
+        .clone()
+        .into_iter()
+        .filter(|s| s.period == locking_period)
+        .collect();
+
+    if sender_vtokens_to_transfer.is_empty() {
+        return Err(ContractError::NotFound {
+            msg: format!(
+                "No tokens found for denom: {:?} and locking period: {:?}",
+                denom, locking_period
+            ),
+        });
+    }
+
+    {
+        // Remaining vtokens are saved to sender's VTOKENS
+        let sender_vtokens_remaining: Vec<Vtoken> = sender_denom_vtokens
+            .into_iter()
+            .filter(|el| !(el.period == locking_period))
+            .collect();
+
+        if sender_vtokens_remaining.is_empty() {
+            VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
+        } else {
+            VTOKENS.save(
+                deps.storage,
+                (info.sender.clone(), &denom),
+                &sender_vtokens_remaining,
+            )?;
+        }
+    }
+
+    {
+        // Load the recipients VTOKENS
+        let recipient_vtokens =
+            VTOKENS.may_load(deps.as_ref().storage, (recipient.clone(), &denom))?;
+
+        let mut recipient_vtokens = if let Some(val) = recipient_vtokens {
+            val
+        } else {
+            vec![]
+        };
+
+        // Extend the recipient vtokens with the sender vtokens
+        recipient_vtokens.extend(sender_vtokens_to_transfer);
+
+        VTOKENS.save(
+            deps.storage,
+            (recipient.clone(), &denom),
+            &recipient_vtokens,
+        )?;
+    }
+
+    // Load sender's nft
+    let mut sender_nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
+
+    // Retrieve tokens with denom and locking period
+    let sender_nft_denom_vtoken = sender_nft
+        .vtokens
+        .clone()
+        .into_iter()
+        .filter(|el| el.token.denom == denom && el.period == locking_period);
 
     // Load the recipients nft
     let recipient_nft = TOKENS.may_load(deps.as_ref().storage, recipient.clone())?;
@@ -482,96 +538,17 @@ pub fn handle_transfer(
         }
     };
 
-    // Load the recipients vtoken for given denom
-    let receiver_vtokens_status = VTOKENS.may_load(deps.storage, (recipient.clone(), &denom))?;
+    recipient_nft.vtokens.extend(sender_nft_denom_vtoken);
 
-    match receiver_vtokens_status {
-        Some(mut receiver_vtokens) => {
-            if receiver_vtokens.is_empty() {
-                let new_vtoken = Vtoken {
-                    ..sender_vtoken_owned.clone()
-                };
-                receiver_vtokens.push(new_vtoken.clone());
-                recipient_nft.vtokens.push(new_vtoken);
+    TOKENS.save(deps.storage, recipient.clone(), &recipient_nft)?;
 
-                VTOKENS.save(deps.storage, (recipient.clone(), &denom), &receiver_vtokens)?;
-                TOKENS.save(deps.storage, recipient.clone(), &recipient_nft)?;
-            } else {
-                let receiver_vtoken: Vec<(usize, &Vtoken)> = receiver_vtokens
-                    .iter()
-                    .enumerate()
-                    .filter(|s| s.1.period == locking_period)
-                    .collect();
-
-                // Create new vtoken if not already present, else update
-                if receiver_vtoken.is_empty() {
-                    let new_vtoken = Vtoken {
-                        ..sender_vtoken_owned.clone()
-                    };
-                    receiver_vtokens.push(new_vtoken.clone());
-                    recipient_nft.vtokens.push(new_vtoken);
-                } else {
-                    let index = receiver_vtoken[0].0;
-                    receiver_vtokens[index].token.amount += sender_vtoken_owned.token.amount;
-                    receiver_vtokens[index].vtoken.amount += sender_vtoken_owned.vtoken.amount;
-
-                    // Check if the recipient nft has a vtoken for the given denom,
-                    // then update else push new
-                    let recipient_nft_vtoken: Vec<(usize, &Vtoken)> = recipient_nft
-                        .vtokens
-                        .iter()
-                        .enumerate()
-                        .filter(|el| el.1.token.denom == denom && el.1.period == locking_period)
-                        .collect();
-
-                    if recipient_nft_vtoken.is_empty() {
-                        recipient_nft.vtokens.push(sender_vtoken_owned.clone());
-                    } else {
-                        let index = recipient_nft_vtoken[0].0;
-                        recipient_nft.vtokens[index].token.amount +=
-                            sender_vtoken_owned.token.amount;
-                        recipient_nft.vtokens[index].vtoken.amount +=
-                            sender_vtoken_owned.vtoken.amount;
-                    }
-                };
-
-                VTOKENS.save(deps.storage, (recipient.clone(), &denom), &receiver_vtokens)?;
-                TOKENS.save(deps.storage, recipient.clone(), &recipient_nft)?;
-            }
-        }
-        None => {
-            // Create a new vtoken
-            let new_vtoken = Vtoken {
-                ..sender_vtoken_owned.clone()
-            };
-            // Append to NFT. Don't need to check if nft has the given denom
-            // because VTOKENS and NFT.vtokens are supposed to have the same data.
-            // If not present in VTOKENS, then also not in TOKENS.
-            recipient_nft.vtokens.push(new_vtoken.clone());
-
-            VTOKENS.save(deps.storage, (recipient.clone(), &denom), &vec![new_vtoken])?;
-            TOKENS.save(deps.storage, recipient.clone(), &recipient_nft)?;
-        }
-    }
-    if sender_vtoken.len() > 1 {
-        sender_vtokens.remove(sender_vtoken_index);
-        VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &sender_vtokens)?;
-    } else {
-        VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
-    }
-
-    // Update sender nft
-    let mut sender_nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
-
-    let sender_nft_denom_vtoken: Vec<(usize, &Vtoken)> = sender_nft
+    let sender_nft_denom_remaining: Vec<Vtoken> = sender_nft
         .vtokens
-        .iter()
-        .enumerate()
-        .filter(|el| el.1.token.denom == denom && el.1.period == locking_period)
+        .into_iter()
+        .filter(|el| !(el.token.denom == denom && el.period == locking_period))
         .collect();
 
-    let index = sender_nft_denom_vtoken[0].0;
-    sender_nft.vtokens.remove(index);
+    sender_nft.vtokens = sender_nft_denom_remaining;
 
     TOKENS.save(deps.storage, info.sender.clone(), &sender_nft)?;
 
@@ -580,6 +557,7 @@ pub fn handle_transfer(
         .add_attribute("from", info.sender)
         .add_attribute("to", recipient))
 }
+
 pub fn bribe_proposal(
     deps: DepsMut<ComdexQuery>,
     env: Env,
@@ -602,14 +580,14 @@ pub fn bribe_proposal(
             val: String::from("Multiple denominations are not supported as yet."),
         });
     }
-    
+
     if info.funds[0].amount.is_zero() {
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
 
     let bribe_coin = info.funds[0].clone();
-    let found=query_whitelisted_asset(deps.as_ref(),bribe_coin.denom.clone())?;
-    if !found{
+    let found = query_whitelisted_asset(deps.as_ref(), bribe_coin.denom.clone())?;
+    if !found {
         return Err(ContractError::CustomError {
             val: String::from("Asset not whitelisted on chain"),
         });
@@ -631,8 +609,6 @@ pub fn bribe_proposal(
     Ok(Response::new().add_attribute("method", "bribe"))
 }
 
-
-
 pub fn claim_rewards(
     mut deps: DepsMut<ComdexQuery>,
     env: Env,
@@ -641,188 +617,252 @@ pub fn claim_rewards(
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //Check active proposal
 
-    let max_proposal_claimed=MAXPROPOSALCLAIMED.load(deps.storage,(app_id,info.sender.clone())).unwrap_or_default();
+    let max_proposal_claimed = MAXPROPOSALCLAIMED
+        .load(deps.storage, (app_id, info.sender.clone()))
+        .unwrap_or_default();
 
-    let all_proposals=COMPLETEDPROPOSALS.load(deps.storage,app_id)?;
-    calculate_rebase_reward(deps.branch(),env.clone(),info.clone(),max_proposal_claimed,all_proposals.clone(),app_id)?;
+    let all_proposals = COMPLETEDPROPOSALS.load(deps.storage, app_id)?;
+    calculate_rebase_reward(
+        deps.branch(),
+        env.clone(),
+        info.clone(),
+        max_proposal_claimed,
+        all_proposals.clone(),
+        app_id,
+    )?;
 
-    let bribe_coins=calculate_bribe_reward(deps.as_ref(),env.clone(),info.clone(),max_proposal_claimed,all_proposals.clone(),app_id)?;
-    let surplus_share=calculate_surplus_reward(deps.as_ref(),env.clone(),info.clone(),max_proposal_claimed,all_proposals.clone(),app_id)?;
+    let bribe_coins = calculate_bribe_reward(
+        deps.as_ref(),
+        env.clone(),
+        info.clone(),
+        max_proposal_claimed,
+        all_proposals.clone(),
+        app_id,
+    )?;
+    let surplus_share = calculate_surplus_reward(
+        deps.as_ref(),
+        env.clone(),
+        info.clone(),
+        max_proposal_claimed,
+        all_proposals.clone(),
+        app_id,
+    )?;
 
-
-    
-    MAXPROPOSALCLAIMED.save(deps.storage,(app_id,info.sender.clone()),all_proposals.last().unwrap())?;
-    Ok(Response::new().add_attribute("method", "voted for proposal")
-                        .add_message(BankMsg::Send {to_address: info.sender.to_string(),amount: bribe_coins})
-                        .add_message(BankMsg::Send {to_address: info.sender.to_string(),amount: vec![surplus_share]}))
+    MAXPROPOSALCLAIMED.save(
+        deps.storage,
+        (app_id, info.sender.clone()),
+        all_proposals.last().unwrap(),
+    )?;
+    Ok(Response::new()
+        .add_attribute("method", "voted for proposal")
+        .add_message(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: bribe_coins,
+        })
+        .add_message(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: vec![surplus_share],
+        }))
 }
 
 pub fn calculate_bribe_reward(
     deps: Deps<ComdexQuery>,
     _env: Env,
     info: MessageInfo,
-    max_proposal_claimed:u64,
-    all_proposals:Vec<u64>,
-    _app_id:u64
+    max_proposal_claimed: u64,
+    all_proposals: Vec<u64>,
+    _app_id: u64,
 ) -> Result<Vec<Coin>, ContractError> {
-   //check if active proposal
-   let mut bribe_coins:Vec<Coin>=vec![];
-   for proposalid in all_proposals.clone(){
-    if proposalid <=max_proposal_claimed
-    {
-        continue;
-    }
-    let  vote = VOTERSPROPOSAL.load(deps.storage, (info.sender.clone(), proposalid))?;
-    let proposal1 = PROPOSAL.load(deps.storage, proposalid)?;
-    if vote.bribe_claimed {
-        return Err(ContractError::CustomError {
-            val: "Bribe Already Claimed".to_string(),
-        });
-    }
-    let total_vote_weight = PROPOSALVOTE
-        .load(deps.storage, (proposal1.app_id, vote.extended_pair))?
-        .u128();
-    let total_bribe = BRIBES_BY_PROPOSAL.load(deps.storage, (proposal1.app_id, vote.extended_pair))?;
+    //check if active proposal
+    let mut bribe_coins: Vec<Coin> = vec![];
+    for proposalid in all_proposals.clone() {
+        if proposalid <= max_proposal_claimed {
+            continue;
+        }
+        let vote = VOTERSPROPOSAL.load(deps.storage, (info.sender.clone(), proposalid))?;
+        let proposal1 = PROPOSAL.load(deps.storage, proposalid)?;
+        if vote.bribe_claimed {
+            return Err(ContractError::CustomError {
+                val: "Bribe Already Claimed".to_string(),
+            });
+        }
+        let total_vote_weight = PROPOSALVOTE
+            .load(deps.storage, (proposal1.app_id, vote.extended_pair))?
+            .u128();
+        let total_bribe =
+            BRIBES_BY_PROPOSAL.load(deps.storage, (proposal1.app_id, vote.extended_pair))?;
 
-    let mut claimable_bribe: Vec<Coin> = vec![];
+        let mut claimable_bribe: Vec<Coin> = vec![];
 
-    for coin in total_bribe.clone() {
-        let claimable_amount = (vote.vote_weight / total_vote_weight) * coin.amount.u128();
-        let claimable_coin = Coin {
-            amount: Uint128::from(claimable_amount),
-            denom: coin.denom,
-        };
-        claimable_bribe.push(claimable_coin);
-    }
-    for bribr_deposited in  claimable_bribe.clone()
-    {
-        match  bribe_coins.iter_mut().find(|ref p| bribr_deposited.denom == p.denom) {
-            Some(pivot) => {
-                pivot.denom = bribr_deposited.denom;
-                pivot.amount+=bribr_deposited.amount;
-            }
-            None => {
-                bribe_coins.push(bribr_deposited);
+        for coin in total_bribe.clone() {
+            let claimable_amount = (vote.vote_weight / total_vote_weight) * coin.amount.u128();
+            let claimable_coin = Coin {
+                amount: Uint128::from(claimable_amount),
+                denom: coin.denom,
+            };
+            claimable_bribe.push(claimable_coin);
+        }
+        for bribr_deposited in claimable_bribe.clone() {
+            match bribe_coins
+                .iter_mut()
+                .find(|ref p| bribr_deposited.denom == p.denom)
+            {
+                Some(pivot) => {
+                    pivot.denom = bribr_deposited.denom;
+                    pivot.amount += bribr_deposited.amount;
+                }
+                None => {
+                    bribe_coins.push(bribr_deposited);
+                }
             }
         }
-      
     }
 
-   }
+    //// send bank message to band
 
-   
-   //// send bank message to band
-   
-
-   Ok(bribe_coins)
-    
+    Ok(bribe_coins)
 }
-
 
 pub fn calculate_rebase_reward(
     mut deps: DepsMut<ComdexQuery>,
     env: Env,
     info: MessageInfo,
-    max_proposal_claimed:u64,
-    all_proposals:Vec<u64>,
-    app_id:u64
+    max_proposal_claimed: u64,
+    all_proposals: Vec<u64>,
+    app_id: u64,
 ) -> Result<(), ContractError> {
-    let mut total_rebase_amount:u128=0 ;
-    for proposalid in all_proposals.clone(){
-        if proposalid <=max_proposal_claimed
-    {
-        continue;
-    }
-    let proposal = PROPOSAL.load(deps.storage, proposalid)?;
-    total_rebase_amount+=proposal.rebase_distributed;
+    let mut total_rebase_amount: u128 = 0;
+    for proposalid in all_proposals.clone() {
+        if proposalid <= max_proposal_claimed {
+            continue;
+        }
+        let proposal = PROPOSAL.load(deps.storage, proposalid)?;
+        total_rebase_amount += proposal.rebase_distributed;
     }
 
-    let app_response=query_app_exists(deps.as_ref(), app_id)?;
+    let app_response = query_app_exists(deps.as_ref(), app_id)?;
     let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
-    let vtokens=VTOKENS.load(deps.storage, (info.sender.clone(),&gov_token_denom))?;
-    let supply=SUPPLY.load(deps.storage,&gov_token_denom)?;
-    let total_locked:u128=supply.vtoken ;
+    let vtokens = VTOKENS.load(deps.storage, (info.sender.clone(), &gov_token_denom))?;
+    let supply = SUPPLY.load(deps.storage, &gov_token_denom)?;
+    let total_locked: u128 = supply.vtoken;
     //// get rebase amount per period
-    let mut locked_t1:u128=0;
-    let mut locked_t2:u128=0;
-    let mut locked_t3:u128=0;
-    let mut locked_t4:u128=0;
+    let mut locked_t1: u128 = 0;
+    let mut locked_t2: u128 = 0;
+    let mut locked_t3: u128 = 0;
+    let mut locked_t4: u128 = 0;
 
-    for vtoken in vtokens.clone()
-    {
-        match vtoken.period{
-            LockingPeriod::T1 =>locked_t1+=vtoken.vtoken.amount.u128(),
-            LockingPeriod::T2 =>locked_t2+=vtoken.vtoken.amount.u128(),
-            LockingPeriod::T3 =>locked_t3+=vtoken.vtoken.amount.u128(),
-            LockingPeriod::T4 =>locked_t4+=vtoken.vtoken.amount.u128(),
+    for vtoken in vtokens.clone() {
+        match vtoken.period {
+            LockingPeriod::T1 => locked_t1 += vtoken.vtoken.amount.u128(),
+            LockingPeriod::T2 => locked_t2 += vtoken.vtoken.amount.u128(),
+            LockingPeriod::T3 => locked_t3 += vtoken.vtoken.amount.u128(),
+            LockingPeriod::T4 => locked_t4 += vtoken.vtoken.amount.u128(),
         }
     }
 
-
-    let total_share=locked_t1+locked_t2+locked_t3+locked_t4 ;
+    let total_share = locked_t1 + locked_t2 + locked_t3 + locked_t4;
 
     //// lock in t1
-    let lock_amount_t1 =(locked_t1/total_share)*(total_rebase_amount/total_locked);
-    let fund_t1=Coin{amount:Uint128::from(lock_amount_t1),denom:gov_token_denom.clone()};
-    lock_funds(deps.branch(), env.clone(), app_id, info.sender.clone(), fund_t1,LockingPeriod::T1)?;
+    let lock_amount_t1 = (locked_t1 / total_share) * (total_rebase_amount / total_locked);
+    let fund_t1 = Coin {
+        amount: Uint128::from(lock_amount_t1),
+        denom: gov_token_denom.clone(),
+    };
+    lock_funds(
+        deps.branch(),
+        env.clone(),
+        app_id,
+        info.sender.clone(),
+        fund_t1,
+        LockingPeriod::T1,
+    )?;
 
-    let lock_amount_t2 =(locked_t2/total_share)*(total_rebase_amount/total_locked);
-    let fund_t2=Coin{amount:Uint128::from(lock_amount_t2),denom:gov_token_denom.clone()};
-    lock_funds(deps.branch(), env.clone(), app_id, info.sender.clone(), fund_t2,LockingPeriod::T2)?;
+    let lock_amount_t2 = (locked_t2 / total_share) * (total_rebase_amount / total_locked);
+    let fund_t2 = Coin {
+        amount: Uint128::from(lock_amount_t2),
+        denom: gov_token_denom.clone(),
+    };
+    lock_funds(
+        deps.branch(),
+        env.clone(),
+        app_id,
+        info.sender.clone(),
+        fund_t2,
+        LockingPeriod::T2,
+    )?;
 
-    let lock_amount_t3 =(locked_t3/total_share)*(total_rebase_amount/total_locked);
-    let fund_t3=Coin{amount:Uint128::from(lock_amount_t3),denom:gov_token_denom.clone()};
-    lock_funds(deps.branch(), env.clone(), app_id, info.sender.clone(), fund_t3,LockingPeriod::T3)?;
+    let lock_amount_t3 = (locked_t3 / total_share) * (total_rebase_amount / total_locked);
+    let fund_t3 = Coin {
+        amount: Uint128::from(lock_amount_t3),
+        denom: gov_token_denom.clone(),
+    };
+    lock_funds(
+        deps.branch(),
+        env.clone(),
+        app_id,
+        info.sender.clone(),
+        fund_t3,
+        LockingPeriod::T3,
+    )?;
 
-    let lock_amount_t4 =(locked_t4/total_share)*(total_rebase_amount/total_locked);
-    let fund_t4=Coin{amount:Uint128::from(lock_amount_t4),denom:gov_token_denom.clone()};
-    lock_funds(deps.branch(), env.clone(), app_id, info.sender.clone(), fund_t4,LockingPeriod::T4)?;
+    let lock_amount_t4 = (locked_t4 / total_share) * (total_rebase_amount / total_locked);
+    let fund_t4 = Coin {
+        amount: Uint128::from(lock_amount_t4),
+        denom: gov_token_denom.clone(),
+    };
+    lock_funds(
+        deps.branch(),
+        env.clone(),
+        app_id,
+        info.sender.clone(),
+        fund_t4,
+        LockingPeriod::T4,
+    )?;
 
     Ok(())
-   
 }
-
 
 pub fn calculate_surplus_reward(
     deps: Deps<ComdexQuery>,
     _env: Env,
     info: MessageInfo,
-    max_proposal_claimed:u64,
-    all_proposals:Vec<u64>,
-    app_id:u64
+    max_proposal_claimed: u64,
+    all_proposals: Vec<u64>,
+    app_id: u64,
 ) -> Result<Coin, ContractError> {
-    let mut total_surplus_available:Coin=Coin{amount:Uint128::from(0 as u32),denom:"null".to_string()} ;
-    for proposalid in all_proposals.clone(){
-        if proposalid <=max_proposal_claimed
-    {
-        continue;
-    }
-    let  proposal = PROPOSAL.load(deps.storage, proposalid)?;
-    total_surplus_available.amount+=proposal.total_surplus.amount ;
-    total_surplus_available.denom=proposal.total_surplus.denom;
+    let mut total_surplus_available: Coin = Coin {
+        amount: Uint128::from(0 as u32),
+        denom: "null".to_string(),
+    };
+    for proposalid in all_proposals.clone() {
+        if proposalid <= max_proposal_claimed {
+            continue;
+        }
+        let proposal = PROPOSAL.load(deps.storage, proposalid)?;
+        total_surplus_available.amount += proposal.total_surplus.amount;
+        total_surplus_available.denom = proposal.total_surplus.denom;
     }
 
-    let app_response=query_app_exists(deps, app_id)?;
+    let app_response = query_app_exists(deps, app_id)?;
     let gov_token_denom = query_get_asset_data(deps, app_response.gov_token_id)?;
-    let vtokens=VTOKENS.load(deps.storage, (info.sender.clone(),&gov_token_denom))?;
-    let supply=SUPPLY.load(deps.storage,&gov_token_denom)?;
-    let total_locked:u128=supply.vtoken ;
+    let vtokens = VTOKENS.load(deps.storage, (info.sender.clone(), &gov_token_denom))?;
+    let supply = SUPPLY.load(deps.storage, &gov_token_denom)?;
+    let total_locked: u128 = supply.vtoken;
     //// get rebase amount per period
-    let mut locked:u128=0;
+    let mut locked: u128 = 0;
 
-    for vtoken in vtokens.clone()
-    {
-        locked+=vtoken.vtoken.amount.u128();
+    for vtoken in vtokens.clone() {
+        locked += vtoken.vtoken.amount.u128();
     }
 
-    let share=locked.div(total_locked);
-    let claim_coin=Coin{amount:Uint128::from(share),denom:gov_token_denom};
-
+    let share = locked.div(total_locked);
+    let claim_coin = Coin {
+        amount: Uint128::from(share),
+        denom: gov_token_denom,
+    };
 
     Ok(claim_coin)
-   
 }
-
 
 pub fn emission(
     deps: DepsMut<ComdexQuery>,
@@ -839,7 +879,7 @@ pub fn emission(
                 .to_string(),
         });
     }
-    
+
     //check governance token via app_id
     let app_id = proposal.app_id;
     let app_response = query_app_exists(deps.as_ref(), app_id)?;
@@ -862,7 +902,7 @@ pub fn emission(
         });
     }
 
-     //// GET TOTAL VESTED TOKEN
+    //// GET TOTAL VESTED TOKEN
     let state = STATE.load(deps.storage)?;
     let query_msg = QueryMsg::VestedTokens {
         denom: gov_token_denom,
@@ -873,10 +913,12 @@ pub fn emission(
     }))?;
 
     //// CALCULATE CIRCULATING SUPPLY (TOTAL SUPPLY-VESTED TOKENS-vtokens(locked))
-    let circulating_supply = Uint128::from(total_weight) - query_response-Uint128::from(vtokens.token);
+    let circulating_supply =
+        Uint128::from(total_weight) - query_response - Uint128::from(vtokens.token);
 
     //// QUERY PERCENTAGE LOCKED (VTOKENS_LOCKED/V-TOKENS+CIRCULATING SUPPLY)
-    let percentage_locked = Decimal::raw(total_v_token).div(Decimal::raw(circulating_supply.u128() + total_v_token));
+    let percentage_locked =
+        Decimal::raw(total_v_token).div(Decimal::raw(circulating_supply.u128() + total_v_token));
 
     //// LOAD EMISSION FOR THE APP
     let mut emission = EMISSION.load(deps.storage, proposal.app_id)?;
@@ -888,50 +930,61 @@ pub fn emission(
     let ext_pair = proposal.extended_pair.clone();
     let mut votes: Vec<Uint128> = vec![];
     for i in 0..ext_pair.len() {
-        let  vote = PROPOSALVOTE
+        let vote = PROPOSALVOTE
             .load(deps.storage, (app_id, ext_pair[i]))
             .unwrap_or_default();
         votes.push(vote);
     }
 
     //// UPDATE Foundation Nodes Share
-    proposal.foundation_distributed=(state.foundation_percentage.mul( effective_emission)).u128();
+    proposal.foundation_distributed = (state.foundation_percentage.mul(effective_emission)).u128();
     //// Update proposal Emission State
     proposal.emission_completed = true;
     proposal.emission_distributed = effective_emission.u128();
 
     //// UPDATE REBASE AMOUNT
-    proposal.rebase_distributed=(reward_emision.mul(percentage_locked)).u128();
+    proposal.rebase_distributed = (reward_emision.mul(percentage_locked)).u128();
 
     //// EMISSION Data Update
-    emission.rewards_pending-=effective_emission.u128();
-    emission.distributed_rewards+=effective_emission.u128();
+    emission.rewards_pending -= effective_emission.u128();
+    emission.distributed_rewards += effective_emission.u128();
 
-    let surplus=query_surplus_reward(deps.as_ref(),app_id,state.surplus_asset_id)?;
-    proposal.total_surplus=surplus.clone();
+    let surplus = query_surplus_reward(deps.as_ref(), app_id, state.surplus_asset_id)?;
+    proposal.total_surplus = surplus.clone();
     EMISSION.save(deps.storage, proposal.app_id, &emission)?;
     PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
-    let mut msg:Vec<ComdexMessages>=vec![];
-    let emission_msg=ComdexMessages::MsgEmissionRewards { app_id: app_id, emission_amount: effective_emission.u128(), extended_pair: proposal.extended_pair, voting_ratio: votes };
-    let rebase_msg=ComdexMessages::MsgRebaseMint { app_id: app_id, amount: proposal.rebase_distributed, contract_addr: env.contract.address.clone() };
-    let surplus_msg=ComdexMessages::MsgGetSurplusFund { app_id: app_id, asset_id: state.surplus_asset_id, contract_addr: env.contract.address, amount: surplus.clone() };
+    let mut msg: Vec<ComdexMessages> = vec![];
+    let emission_msg = ComdexMessages::MsgEmissionRewards {
+        app_id: app_id,
+        emission_amount: effective_emission.u128(),
+        extended_pair: proposal.extended_pair,
+        voting_ratio: votes,
+    };
+    let rebase_msg = ComdexMessages::MsgRebaseMint {
+        app_id: app_id,
+        amount: proposal.rebase_distributed,
+        contract_addr: env.contract.address.clone(),
+    };
+    let surplus_msg = ComdexMessages::MsgGetSurplusFund {
+        app_id: app_id,
+        asset_id: state.surplus_asset_id,
+        contract_addr: env.contract.address,
+        amount: surplus.clone(),
+    };
     msg.push(emission_msg);
     msg.push(rebase_msg);
 
-    if surplus.amount!=Uint128::new(0){
-    msg.push(surplus_msg);
+    if surplus.amount != Uint128::new(0) {
+        msg.push(surplus_msg);
     }
 
-    let mut all_proposals=COMPLETEDPROPOSALS.load(deps.storage,app_id)?;
+    let mut all_proposals = COMPLETEDPROPOSALS.load(deps.storage, app_id)?;
     all_proposals.push(proposal_id);
-    COMPLETEDPROPOSALS.save(deps.storage,app_id,&all_proposals)?;
+    COMPLETEDPROPOSALS.save(deps.storage, app_id, &all_proposals)?;
     Ok(Response::new()
-                    .add_attribute("method", "emission")
-                    .add_messages(msg))
+        .add_attribute("method", "emission")
+        .add_messages(msg))
 }
-
-
-
 
 pub fn vote_proposal(
     deps: DepsMut<ComdexQuery>,
@@ -941,7 +994,6 @@ pub fn vote_proposal(
     proposal_id: u64,
     extended_pair: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
- 
     //// check if already voted for proposal
     let has_voted = VOTERS_VOTE
         .load(deps.storage, (info.sender.clone(), proposal_id))
@@ -961,19 +1013,20 @@ pub fn vote_proposal(
             val: "Proposal Voting Period Ended".to_string(),
         });
     }
-    let app_response=query_app_exists(deps.as_ref(), app_id)?;
-    
+    let app_response = query_app_exists(deps.as_ref(), app_id)?;
+
     let extended_pairs = proposal.extended_pair.clone();
-    
+
     // check if ext_pair param exist in extended pair list to vote for
 
-    match extended_pairs.binary_search(&extended_pair){
+    match extended_pairs.binary_search(&extended_pair) {
         Ok(_) => (),
-        Err(_) => return Err(ContractError::CustomError {
-            val: "Invalid Extended pair".to_string(),
-        })
+        Err(_) => {
+            return Err(ContractError::CustomError {
+                val: "Invalid Extended pair".to_string(),
+            })
+        }
     }
-    
 
     //balance of owner for the for denom for voting
 
@@ -987,12 +1040,11 @@ pub fn vote_proposal(
     let vtokens = VTOKENS.load(deps.storage, (info.sender.clone(), &gov_token_denom))?;
 
     // calculate voting power for the the proposal
-    let mut vote_power:u128=0;
+    let mut vote_power: u128 = 0;
 
-    for vtoken in vtokens.clone()
-    {
-    proposal.total_voted_weight+=vtoken.vtoken.amount.u128();
-    vote_power+=vtoken.vtoken.amount.u128();
+    for vtoken in vtokens.clone() {
+        proposal.total_voted_weight += vtoken.vtoken.amount.u128();
+        vote_power += vtoken.vtoken.amount.u128();
     }
 
     // Update proposal Vote for an app
@@ -1000,8 +1052,8 @@ pub fn vote_proposal(
     let proposal_vote = PROPOSALVOTE
         .load(deps.storage, (proposal_id, extended_pair))
         .unwrap_or_default();
-    
-        PROPOSALVOTE.save(
+
+    PROPOSALVOTE.save(
         deps.storage,
         (proposal_id, extended_pair),
         &(Uint128::from(vote_power) + proposal_vote),
@@ -1029,7 +1081,7 @@ pub fn raise_proposal(
     //check if app exist
     query_app_exists(deps.as_ref(), app_id)?;
     //get ext pairs vec from app
-    let ext_pairs=query_extended_pair_by_app(deps.as_ref(),app_id)?;
+    let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
 
     //check no proposal active for app
     let current_app_proposal = match APPCURRENTPROPOSAL.may_load(deps.storage, app_id)? {
@@ -1061,10 +1113,13 @@ pub fn raise_proposal(
         emission_distributed: 0,
         rebase_distributed: 0,
         total_voted_weight: 0,
-        foundation_emission_completed:false,
-        foundation_distributed:0,
-        total_surplus: Coin{amount:Uint128::from(0 as u32 ) , denom:"nodenom".to_string()},
-        height: env.block.height
+        foundation_emission_completed: false,
+        foundation_distributed: 0,
+        total_surplus: Coin {
+            amount: Uint128::from(0 as u32),
+            denom: "nodenom".to_string(),
+        },
+        height: env.block.height,
     };
     let current_proposal = PROPOSALCOUNT.load(deps.storage).unwrap_or_default();
     PROPOSALCOUNT.save(deps.storage, &(current_proposal + 1))?;
@@ -1072,8 +1127,6 @@ pub fn raise_proposal(
     PROPOSAL.save(deps.storage, current_proposal + 1, &proposal)?;
     Ok(Response::new().add_attribute("method", "reset"))
 }
-
-
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
@@ -1101,7 +1154,7 @@ mod tests {
 
     use super::*;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{coin, coins, Addr, OwnedDeps, StdError,CosmosMsg};
+    use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError};
 
     const DENOM: &str = "TKN";
 
@@ -1132,16 +1185,13 @@ mod tests {
             foundation_addr: vec![Addr::unchecked("vesting_contract")],
             foundation_percentage: Decimal::new(Uint128::from(2 as u32)),
             surplus_asset_id: 3,
-            emission: Emission{
-                app_id:1,
+            emission: Emission {
+                app_id: 1,
                 total_rewards: 200000,
                 rewards_pending: 200000,
                 emmission_rate: Decimal::new(Uint128::from(2 as u64)),
                 distributed_rewards: 123333,
-            }
-            
-            
-
+            },
         }
     }
 
@@ -1233,7 +1283,7 @@ mod tests {
     fn lock_different_denom_and_time_period() {
         // mock values
         let mut deps = mock_dependencies();
-        let  env = mock_env();
+        let env = mock_env();
         let info = mock_info("sender", &coins(0, DENOM.to_string()));
 
         let imsg = init_msg();
