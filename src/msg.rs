@@ -1,5 +1,5 @@
-use crate::state::{ LockingPeriod, PeriodWeight, TokenInfo, Vtoken, Emission};
-use cosmwasm_std::{Addr, Coin,Decimal};
+use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
+use cosmwasm_std::{Addr, Coin, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -12,9 +12,9 @@ pub struct InstantiateMsg {
     pub voting_period: u64,
     pub vesting_contract: Addr,
     pub foundation_addr: Vec<Addr>,
-    pub foundation_percentage : Decimal,
-    pub surplus_asset_id:u64,
-    pub emission: Emission
+    pub foundation_percentage: Decimal,
+    pub surplus_asset_id: u64,
+    pub emission: Emission,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -57,7 +57,7 @@ pub enum ExecuteMsg {
         locking_period: LockingPeriod,
         denom: String,
     },
-    FoundationRewards{
+    FoundationRewards {
         proposal_id: u64,
     },
 }
@@ -78,40 +78,52 @@ pub enum QueryMsg {
     VestedTokens {
         denom: String,
     },
-    Supply{
+
+    Supply {
         denom: String,
     },
-    CurrentProposal{
+    CurrentProposal {
         app_id: u64,
     },
-    Proposal{
-        proposal_id:u64
+    Proposal {
+        proposal_id: u64,
     },
-    BribeByProposal{
-        proposal_id:u64,
-        app_id:u64,
+    BribeByProposal {
+        proposal_id: u64,
+        app_id: u64,
     },
-    HasVoted{
+    HasVoted {
         address: Addr,
-        proposal_id:u64
+        proposal_id: u64,
     },
-    Vote{
+    Vote {
         address: Addr,
-        proposal_id:u64
+        proposal_id: u64,
     },
-    ClaimableBribe{
+
+    ClaimableBribe {
         address: Addr,
-        app_id:u64
-    }
+        app_id: u64,
+    },
+
+    /// Total amount of given denom withdrawable.
+    Withdrawable {
+        address: Option<String>,
+        denom: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct MigrateMsg {}
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct IssuedNftResponse {
     pub nft: TokenInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct WithdrawableResponse {
+    pub amount: Coin,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -1,3 +1,13 @@
+#[cfg(not(feature = "library"))]
+use cosmwasm_std::entry_point;
+use cosmwasm_std::{
+    to_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo,
+    QueryRequest, Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmQuery,
+};
+use cw2::set_contract_version;
+use schemars::_serde_json::de;
+use std::ops::{AddAssign, Div, Mul, Sub, SubAssign};
+
 use crate::error::ContractError;
 use crate::helpers::{
     get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
@@ -14,14 +24,6 @@ use crate::state::{
     VOTINGPERIOD,
 };
 use comdex_bindings::{ComdexMessages, ComdexQuery};
-#[cfg(not(feature = "library"))]
-use cosmwasm_std::entry_point;
-use cosmwasm_std::{
-    to_binary, Addr, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, StdError, StdResult, Storage, Uint128, WasmQuery,
-};
-use cw2::set_contract_version;
-use std::ops::{Div, Mul};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:locking_contract";
@@ -51,6 +53,7 @@ pub fn instantiate(
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     VOTINGPERIOD.save(deps.storage, &msg.voting_period)?;
     EMISSION.save(deps.storage, msg.emission.app_id, &msg.emission)?;
+
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("owner", info.sender))
@@ -141,6 +144,7 @@ pub fn emission_foundation(
         .add_attribute("action", "lock")
         .add_attribute("from", info.sender))
 }
+
 fn lock_funds(
     deps: DepsMut<ComdexQuery>,
     env: Env,
@@ -207,6 +211,7 @@ fn lock_funds(
 
     Ok(())
 }
+
 /// Lock the sent tokens and create corresponding vtokens
 pub fn handle_lock_nft(
     deps: DepsMut<ComdexQuery>,
