@@ -1,18 +1,10 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{
-    to_binary, Addr, CosmosMsg, CustomQuery, Querier, QuerierWrapper, StdResult, WasmMsg, WasmQuery,
-};
-use comdex_bindings::{ComdexMessages, ComdexQuery};
-use cosmwasm_std::{ Binary, Deps, DepsMut, Env, MessageInfo, Response,Coin};
+use cosmwasm_std::{StdResult};
+use comdex_bindings::{ComdexQuery};
+use cosmwasm_std::{  Deps, Coin};
 use comdex_bindings::{
-     GetAppResponse, GetAssetDataResponse, MessageValidateResponse, StateResponse,
-    TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount,GetWhitelistedAssetResponse
-};
-use cosmwasm_std::{ Decimal,  QueryRequest};
-
-use crate::msg::{ExecuteMsg, QueryMsg};
+     GetAppResponse, GetAssetDataResponse,TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount,GetWhitelistedAssetResponse};
+use cosmwasm_std::{ QueryRequest};
 
 pub fn query_app_exists(
     deps: Deps<ComdexQuery>,
