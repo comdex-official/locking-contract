@@ -85,6 +85,9 @@ pub enum ComdexQuery {
         app_id: u64,
         asset_id: u64
     },
+    CheckWhitelistedAsset{
+        denom: String
+    }
 }
 
 impl CustomQuery for ComdexQuery {}
@@ -133,4 +136,11 @@ pub struct GetExtendedPairByAppResponse {
 #[serde(rename_all = "snake_case")]
 pub struct GetSurplusRewardAmount{
     pub amount: Coin,
+}
+
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct GetWhitelistedAssetResponse{
+    pub found: bool,
 }

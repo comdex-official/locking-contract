@@ -4,7 +4,7 @@ mod query;
 pub use msg::ComdexMessages;
 pub use query::{
     ComdexQuery, GetAppResponse, GetAssetDataResponse, MessageValidateResponse, StateResponse,
-    TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount
+    TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount,GetWhitelistedAssetResponse
 };
 
 // This is a signal, such that any contract that imports these helpers will only run on the

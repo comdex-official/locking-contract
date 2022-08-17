@@ -1,4 +1,4 @@
-use crate::state::{CallType, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
+use crate::state::{CallType, LockingPeriod, PeriodWeight, TokenInfo, Vtoken, Emission};
 use cosmwasm_std::{Addr, Coin,Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,8 @@ pub struct InstantiateMsg {
     pub vesting_contract: Addr,
     pub foundation_addr: Vec<Addr>,
     pub foundation_percentage : Decimal,
-    pub surplus_asset_id:u64
+    pub surplus_asset_id:u64,
+    pub emission: Emission
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -46,19 +47,15 @@ pub enum ExecuteMsg {
     Lock {
         app_id: u64,
         locking_period: LockingPeriod,
-        calltype: Option<CallType>,
     },
     Withdraw {
-        app_id: u64,
         denom: String,
-        amount: u64,
         lockingperiod: LockingPeriod,
     },
     Transfer {
         recipent: String,
         locking_period: LockingPeriod,
         denom: String,
-        calltype: Option<CallType>,
     },
     FoundationRewards{
         proposal_id: u64,
@@ -73,27 +70,39 @@ pub enum QueryMsg {
         address: String,
     },
 
-    /// Query the tokens with Unlocked status. If denom is supplied, then only
-    /// query for a specific denomination, else return all tokens.
-    UnlockedTokens {
-        address: Option<String>,
-        denom: Option<String>,
-    },
-
-    /// Query the tokens with Locked status. If denom is supplied, the only
-    /// query for a specific denomination, else return all tokens.
-    LockedTokens {
-        address: Option<String>,
-        denom: Option<String>,
-    },
-
     /// Query the total vtokens issued to a single user.
     IssuedVtokens {
-        address: Option<String>,
+        address: Addr,
+        denom: String,
     },
     VestedTokens {
         denom: String,
     },
+    Supply{
+        denom: String,
+    },
+    CurrentProposal{
+        app_id: u64,
+    },
+    Proposal{
+        proposal_id:u64
+    },
+    BribeByProposal{
+        proposal_id:u64,
+        app_id:u64,
+    },
+    HasVoted{
+        address: Addr,
+        proposal_id:u64
+    },
+    Vote{
+        address: Addr,
+        proposal_id:u64
+    },
+    ClaimableBribe{
+        address: Addr,
+        app_id:u64
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

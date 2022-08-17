@@ -122,7 +122,15 @@ pub enum ComdexMessages {
     app_id: u64,
     amount :u128,
     foundation_address : Vec<Addr>,
-    }
+    },
+
+    MsgRebaseMint {
+        app_id: u64,
+        amount :u128,
+        contract_addr : Addr,
+        }
+        
+
 }
 
 impl From<ComdexMessages> for CosmosMsg<ComdexMessages> {

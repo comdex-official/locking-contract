@@ -85,7 +85,7 @@ pub struct State {
     pub foundation_addr: Vec<Addr>,
     pub foundation_percentage: Decimal,
     pub voting_period:u64,
-    pub surplus_asset_id:u64
+    pub surplus_asset_id:u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -102,10 +102,6 @@ pub struct TokenSupply {
 pub const STATE: Item<State> = Item::new("state");
 // Owner to NFT
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
-// Owner to Locked tokens
-pub const LOCKED: Map<Addr, Vec<Coin>> = Map::new("locked");
-// Owner to unlocked tokens, i.e. token that can be withdrawn
-pub const UNLOCKED: Map<Addr, Vec<Coin>> = Map::new("unlocked");
 // Total supply of each (vtoken supplied, token deposited)
 pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");
 // Vtoken owned by an address for a specific denom. For each denom, each vector

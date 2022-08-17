@@ -8,7 +8,7 @@ use comdex_bindings::{ComdexMessages, ComdexQuery};
 use cosmwasm_std::{ Binary, Deps, DepsMut, Env, MessageInfo, Response,Coin};
 use comdex_bindings::{
      GetAppResponse, GetAssetDataResponse, MessageValidateResponse, StateResponse,
-    TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount
+    TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount,GetWhitelistedAssetResponse
 };
 use cosmwasm_std::{ Decimal,  QueryRequest};
 
@@ -95,4 +95,17 @@ pub fn query_surplus_reward(
             }))?;
 
     Ok(amount.amount)
+}
+
+pub fn query_whitelisted_asset(
+    deps: Deps<ComdexQuery>,
+    asset_denom:String,
+) -> StdResult<bool> {
+    let response =
+        deps.querier
+            .query::<GetWhitelistedAssetResponse>(&QueryRequest::Custom(ComdexQuery::CheckWhitelistedAsset {
+                denom:asset_denom
+            }))?;
+
+    Ok(response.found)
 }

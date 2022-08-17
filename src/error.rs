@@ -30,4 +30,8 @@ pub enum ContractError {
 
     #[error("The token is not in Locked state")]
     NotLocked {},
+   
+
+    #[error("Funds should not be sent with the chosen operation")]
+    FundsNotAllowed {},
 }
