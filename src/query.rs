@@ -15,52 +15,44 @@ use crate::state::{
 };
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(
-    deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
-    msg: QueryMsg,
-) -> StdResult<Binary> {
+pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::IssuedNft { address } => to_binary(&query_issued_nft(deps, env, info, address)?),
+        QueryMsg::IssuedNft { address } => to_binary(&query_issued_nft(deps, env, address)?),
 
         QueryMsg::IssuedVtokens { address, denom } => {
-            to_binary(&query_issued_vtokens(deps, env, info, address, denom)?)
+            to_binary(&query_issued_vtokens(deps, env, address, denom)?)
         }
 
-        QueryMsg::Supply { denom } => to_binary(&query_issued_supply(deps, env, info, denom)?),
+        QueryMsg::Supply { denom } => to_binary(&query_issued_supply(deps, env, denom)?),
 
         QueryMsg::CurrentProposal { app_id } => {
-            to_binary(&query_current_proposal(deps, env, info, app_id)?)
+            to_binary(&query_current_proposal(deps, env, app_id)?)
         }
 
-        QueryMsg::Proposal { proposal_id } => {
-            to_binary(&query_proposal(deps, env, info, proposal_id)?)
-        }
+        QueryMsg::Proposal { proposal_id } => to_binary(&query_proposal(deps, env, proposal_id)?),
 
         QueryMsg::BribeByProposal {
             proposal_id,
             app_id,
-        } => to_binary(&query_bribe(deps, env, info, app_id, proposal_id)?),
+        } => to_binary(&query_bribe(deps, env, app_id, proposal_id)?),
 
         QueryMsg::Vote {
             proposal_id,
             address,
-        } => to_binary(&query_vote(deps, env, info, address, proposal_id)?),
+        } => to_binary(&query_vote(deps, env, address, proposal_id)?),
 
-        QueryMsg::ClaimableBribe { address, app_id } => {
-            to_binary(&query_bribe_eligible(deps, env, info, address, app_id)?)
-        }
-
+        // QueryMsg::ClaimableBribe { address, app_id } => {
+        //     to_binary(&query_bribe_eligible(deps, env, address, app_id)?)
+        // }
         QueryMsg::Withdrawable { address, denom } => {
-            to_binary(&query_withdrawable(deps, env, info, address, denom)?)
+            to_binary(&query_withdrawable(deps, env, address, denom)?)
         }
 
         _ => panic!("Not implemented"),
     }
 }
 
-pub fn query_state(deps: Deps<ComdexQuery>, _env: Env, _info: MessageInfo) -> StdResult<State> {
+pub fn query_state(deps: Deps<ComdexQuery>, _env: Env) -> StdResult<State> {
     let state = STATE.may_load(deps.storage)?;
     match state {
         Some(val) => Ok(val),
@@ -73,7 +65,6 @@ pub fn query_state(deps: Deps<ComdexQuery>, _env: Env, _info: MessageInfo) -> St
 pub fn query_issued_nft(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    _info: MessageInfo,
     address: String,
 ) -> StdResult<IssuedNftResponse> {
     let owner = deps.api.addr_validate(&address)?;
@@ -90,7 +81,6 @@ pub fn query_issued_nft(
 pub fn query_issued_vtokens(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    _info: MessageInfo,
     address: Addr,
     denom: String,
 ) -> StdResult<Vec<Vtoken>> {
@@ -105,29 +95,18 @@ pub fn query_issued_vtokens(
 pub fn query_issued_supply(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    _info: MessageInfo,
     denom: String,
 ) -> StdResult<TokenSupply> {
     let supply = SUPPLY.may_load(deps.storage, &denom)?;
     Ok(supply.unwrap())
 }
 
-pub fn query_current_proposal(
-    deps: Deps<ComdexQuery>,
-    _env: Env,
-    _info: MessageInfo,
-    app_id: u64,
-) -> StdResult<u64> {
+pub fn query_current_proposal(deps: Deps<ComdexQuery>, _env: Env, app_id: u64) -> StdResult<u64> {
     let supply = APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?;
     Ok(supply.unwrap_or_default())
 }
 
-pub fn query_proposal(
-    deps: Deps<ComdexQuery>,
-    _env: Env,
-    _info: MessageInfo,
-    proposal_id: u64,
-) -> StdResult<Proposal> {
+pub fn query_proposal(deps: Deps<ComdexQuery>, _env: Env, proposal_id: u64) -> StdResult<Proposal> {
     let supply = PROPOSAL.may_load(deps.storage, proposal_id)?;
     Ok(supply.unwrap())
 }
@@ -135,7 +114,6 @@ pub fn query_proposal(
 pub fn query_bribe(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    _info: MessageInfo,
     app_id: u64,
     proposal_id: u64,
 ) -> StdResult<Vec<Coin>> {
@@ -146,7 +124,6 @@ pub fn query_bribe(
 pub fn query_is_voted(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    _info: MessageInfo,
     address: Addr,
     proposal_id: u64,
 ) -> StdResult<bool> {
@@ -157,7 +134,6 @@ pub fn query_is_voted(
 pub fn query_vote(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    _info: MessageInfo,
     address: Addr,
     proposal_id: u64,
 ) -> StdResult<Vote> {
@@ -168,15 +144,10 @@ pub fn query_vote(
 pub fn query_withdrawable(
     deps: Deps<ComdexQuery>,
     env: Env,
-    info: MessageInfo,
-    address: Option<String>,
+    address: String,
     denom: String,
 ) -> StdResult<WithdrawableResponse> {
-    let address = if let Some(val) = address {
-        deps.api.addr_validate(&val)?
-    } else {
-        info.sender
-    };
+    let address = deps.api.addr_validate(&address)?;
 
     let vtokens = VTOKENS.may_load(deps.storage, (address.clone(), &denom))?;
 
@@ -201,29 +172,29 @@ pub fn query_withdrawable(
     })
 }
 
-pub fn query_bribe_eligible(
-    deps: Deps<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
-    address: Addr,
-    app_id: u64,
-) -> StdResult<Vec<Coin>> {
-    let max_proposal_claimed = MAXPROPOSALCLAIMED
-        .load(deps.storage, (app_id, address))
-        .unwrap_or_default();
+// pub fn query_bribe_eligible(
+//     deps: Deps<ComdexQuery>,
+//     env: Env,
+//     info: MessageInfo,
+//     address: Addr,
+//     app_id: u64,
+// ) -> StdResult<Vec<Coin>> {
+//     let max_proposal_claimed = MAXPROPOSALCLAIMED
+//         .load(deps.storage, (app_id, address))
+//         .unwrap_or_default();
 
-    let all_proposals = COMPLETEDPROPOSALS.load(deps.storage, app_id)?;
+//     let all_proposals = COMPLETEDPROPOSALS.load(deps.storage, app_id)?;
 
-    let bribe_coins = calculate_bribe_reward(
-        deps,
-        env.clone(),
-        info.clone(),
-        max_proposal_claimed,
-        all_proposals.clone(),
-        app_id,
-    );
-    Ok(bribe_coins.unwrap_or_default())
-}
+//     let bribe_coins = calculate_bribe_reward(
+//         deps,
+//         env.clone(),
+//         info.clone(),
+//         max_proposal_claimed,
+//         all_proposals.clone(),
+//         app_id,
+//     );
+//     Ok(bribe_coins.unwrap_or_default())
+// }
 
 #[cfg(test)]
 mod tests {
@@ -287,14 +258,8 @@ mod tests {
         VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data);
 
         // Query the withdrawable balance; should be 250
-        let res = query_withdrawable(
-            deps.as_ref(),
-            env.clone(),
-            info.clone(),
-            None,
-            DENOM.to_string(),
-        )
-        .unwrap();
+        let res = query_withdrawable(deps.as_ref(), env.clone(), info.clone(), DENOM.to_string())
+            .unwrap();
         assert_eq!(
             res.amount,
             Coin {

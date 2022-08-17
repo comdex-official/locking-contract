@@ -105,7 +105,7 @@ pub enum QueryMsg {
 
     /// Total amount of given denom withdrawable.
     Withdrawable {
-        address: Option<String>,
+        address: String,
         denom: String,
     },
 }
