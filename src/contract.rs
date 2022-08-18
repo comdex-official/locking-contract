@@ -89,8 +89,8 @@ pub fn execute(
 
         ExecuteMsg::Withdraw {
             denom,
-            lockingperiod,
-        } => handle_withdraw(deps, env, info, denom, lockingperiod),
+            locking_period,
+        } => handle_withdraw(deps, env, info, denom, locking_period),
 
         ExecuteMsg::Transfer {
             recipent,
