@@ -254,12 +254,10 @@ pub fn calculate_bribe_reward_query(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{execute, instantiate};
-    use crate::msg::{ExecuteMsg, InstantiateMsg};
-    use crate::state::{LockingPeriod, PeriodWeight, Status};
+    use crate::state::{LockingPeriod, Status};
     use comdex_bindings::ComdexQuery;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{coins, Decimal, OwnedDeps, Timestamp, Uint128};
+    use cosmwasm_std::{OwnedDeps, Timestamp, Uint128};
     use std::marker::PhantomData;
 
     const DENOM: &str = "TKN";

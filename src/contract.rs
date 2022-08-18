@@ -1160,6 +1160,7 @@ mod tests {
     use std::marker::PhantomData;
 
     use super::*;
+    use crate::state::Emission;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
     use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError};
 
