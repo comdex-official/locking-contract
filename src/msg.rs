@@ -108,6 +108,11 @@ pub enum QueryMsg {
         address: String,
         denom: String,
     },
+    TotalVTokens
+    {
+        address:Addr,
+        denom:String
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

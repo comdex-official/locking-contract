@@ -53,7 +53,7 @@ pub fn instantiate(
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     VOTINGPERIOD.save(deps.storage, &msg.voting_period)?;
     EMISSION.save(deps.storage, msg.emission.app_id, &msg.emission)?;
-
+    PROPOSALCOUNT.save(deps.storage, &0)?;
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("owner", info.sender))
@@ -937,7 +937,7 @@ pub fn emission(
     for i in 0..ext_pair.len() {
         let vote = PROPOSALVOTE
             .load(deps.storage, (app_id, ext_pair[i]))
-            .unwrap_or_default();
+            .unwrap_or(Uint128::from(0 as u32));
         votes.push(vote);
     }
 
@@ -1064,6 +1064,8 @@ pub fn vote_proposal(
         &(Uint128::from(vote_power) + proposal_vote),
     )?;
 
+    VOTERS_VOTE.save(deps.storage, (info.sender.clone(), proposal_id),&true)?;
+
     // update proposal
     PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
     let vote = Vote {
@@ -1072,6 +1074,7 @@ pub fn vote_proposal(
         vote_weight: vote_power,
         bribe_claimed: false,
     };
+
     VOTERSPROPOSAL.save(deps.storage, (info.sender, proposal_id), &vote)?;
 
     Ok(Response::new().add_attribute("method", "voted for proposal"))
@@ -1086,8 +1089,8 @@ pub fn raise_proposal(
     //check if app exist
     query_app_exists(deps.as_ref(), app_id)?;
     //get ext pairs vec from app
-    let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
-
+    ////let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
+    let ext_pairs = vec![1,2,3,4];
     //check no proposal active for app
     let current_app_proposal = match APPCURRENTPROPOSAL.may_load(deps.storage, app_id)? {
         Some(val) => val,
@@ -1106,7 +1109,7 @@ pub fn raise_proposal(
     }
 
     // set proposal data
-    let voting_period = VOTINGPERIOD.load(deps.storage).unwrap_or_default();
+    let voting_period = VOTINGPERIOD.load(deps.storage)?;
     //update proposal maps
     let proposal = Proposal {
         app_id: app_id,
@@ -1126,11 +1129,13 @@ pub fn raise_proposal(
         },
         height: env.block.height,
     };
-    let current_proposal = PROPOSALCOUNT.load(deps.storage).unwrap_or_default();
-    PROPOSALCOUNT.save(deps.storage, &(current_proposal + 1))?;
-    APPCURRENTPROPOSAL.save(deps.storage, app_id, &(current_proposal + 1))?;
-    PROPOSAL.save(deps.storage, current_proposal + 1, &proposal)?;
-    Ok(Response::new().add_attribute("method", "reset"))
+    let mut current_proposal = PROPOSALCOUNT.load(deps.storage).unwrap_or(0);
+    current_proposal+=1;
+    PROPOSALCOUNT.save(deps.storage, &current_proposal)?;
+    APPCURRENTPROPOSAL.save(deps.storage, app_id, &current_proposal)?;
+    PROPOSAL.save(deps.storage, current_proposal , &proposal)?;
+    Ok(Response::new().add_attribute("method", "proposal_raise")
+                      .add_attribute("proposal_id",current_proposal.to_string()))
 }
 
 #[entry_point]

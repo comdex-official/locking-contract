@@ -5,7 +5,7 @@ use std::borrow::Borrow;
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Deps, Env, MessageInfo, StdError, StdResult,
-    Uint128
+    Uint128,QueryRequest,WasmQuery
 };
 use crate::error::ContractError;
 
@@ -50,20 +50,25 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::Withdrawable { address, denom } => {
             to_binary(&query_withdrawable(deps, env, address, denom)?)
         }
-
+        QueryMsg::TotalVTokens{address,
+            denom} =>  {to_binary(&query_vtoken_balance(deps, env,address,
+                denom)?)}
         _ => panic!("Not implemented"),
     }
 }
 
-pub fn query_state(deps: Deps<ComdexQuery>, _env: Env) -> StdResult<State> {
-    let state = STATE.may_load(deps.storage)?;
-    match state {
-        Some(val) => Ok(val),
-        None => Err(StdError::NotFound {
-            kind: String::from("State Not set"),
-        }),
-    }
+pub fn query_vtoken_balance(deps: Deps<ComdexQuery>, _env: Env,address: Addr,
+    denom:String) -> StdResult<Uint128> {
+    let vtokens = VTOKENS.load(deps.storage, (address, &denom))?;
+    let mut total_vtoken:u128=0;
+    for vtoken in vtokens.clone() {
+        total_vtoken += vtoken.vtoken.amount.u128();
+    }    
+    
+    Ok(Uint128::from(total_vtoken))
 }
+
+
 
 pub fn query_issued_nft(
     deps: Deps<ComdexQuery>,
@@ -106,12 +111,12 @@ pub fn query_issued_supply(
 
 pub fn query_current_proposal(deps: Deps<ComdexQuery>, _env: Env, app_id: u64) -> StdResult<u64> {
     let supply = APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?;
-    Ok(supply.unwrap_or_default())
+    Ok(supply.unwrap_or(0))
 }
 
-pub fn query_proposal(deps: Deps<ComdexQuery>, _env: Env, proposal_id: u64) -> StdResult<Proposal> {
+pub fn query_proposal(deps: Deps<ComdexQuery>, _env: Env, proposal_id: u64) -> StdResult<Option<Proposal>> {
     let supply = PROPOSAL.may_load(deps.storage, proposal_id)?;
-    Ok(supply.unwrap())
+    Ok(supply)
 }
 
 pub fn query_bribe(
