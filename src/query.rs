@@ -1,17 +1,20 @@
 // !------- IssuedVtokens query not implemented-------!
 
+use std::borrow::Borrow;
+
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Deps, Env, MessageInfo, StdError, StdResult,
-    Uint128,
+    Uint128
 };
+use crate::error::ContractError;
 
 use crate::contract::calculate_bribe_reward;
 use crate::msg::{IssuedNftResponse, IssuedVtokensResponse, QueryMsg, WithdrawableResponse};
 use crate::state::{
     Proposal, State, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
     COMPLETEDPROPOSALS, MAXPROPOSALCLAIMED, PROPOSAL, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL,
-    VOTERS_VOTE, VTOKENS,
+    VOTERS_VOTE, VTOKENS,PROPOSALVOTE
 };
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -41,9 +44,9 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             address,
         } => to_binary(&query_vote(deps, env, address, proposal_id)?),
 
-        // QueryMsg::ClaimableBribe { address, app_id } => {
-        //     to_binary(&query_bribe_eligible(deps, env, address, app_id)?)
-        // }
+        QueryMsg::ClaimableBribe { address, app_id } => {
+            to_binary(&query_bribe_eligible(deps, env, address, app_id)?)
+        }
         QueryMsg::Withdrawable { address, denom } => {
             to_binary(&query_withdrawable(deps, env, address, denom)?)
         }
@@ -172,29 +175,84 @@ pub fn query_withdrawable(
     })
 }
 
-// pub fn query_bribe_eligible(
-//     deps: Deps<ComdexQuery>,
-//     env: Env,
-//     info: MessageInfo,
-//     address: Addr,
-//     app_id: u64,
-// ) -> StdResult<Vec<Coin>> {
-//     let max_proposal_claimed = MAXPROPOSALCLAIMED
-//         .load(deps.storage, (app_id, address))
-//         .unwrap_or_default();
+pub fn query_bribe_eligible(
+    deps: Deps<ComdexQuery>,
+    env: Env,
+    address: Addr,
+    app_id: u64,
+) -> StdResult<Vec<Coin>> {
+    let max_proposal_claimed = MAXPROPOSALCLAIMED
+        .load(deps.storage, (app_id, address.clone()))
+        .unwrap_or_default();
 
-//     let all_proposals = COMPLETEDPROPOSALS.load(deps.storage, app_id)?;
+    let all_proposals = COMPLETEDPROPOSALS.load(deps.storage, app_id)?;
 
-//     let bribe_coins = calculate_bribe_reward(
-//         deps,
-//         env.clone(),
-//         info.clone(),
-//         max_proposal_claimed,
-//         all_proposals.clone(),
-//         app_id,
-//     );
-//     Ok(bribe_coins.unwrap_or_default())
-// }
+    let bribe_coins = calculate_bribe_reward_query(
+        deps,
+        env.clone(),
+        max_proposal_claimed,
+        all_proposals.clone(),
+        address.borrow(),
+        app_id,
+    );
+    Ok(bribe_coins.unwrap_or_default())
+}
+
+
+pub fn calculate_bribe_reward_query(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    max_proposal_claimed: u64,
+    all_proposals: Vec<u64>,
+    address: &Addr,
+    _app_id: u64,
+) -> Result<Vec<Coin>, ContractError> {
+    //check if active proposal
+    let mut bribe_coins: Vec<Coin> = vec![];
+    for proposalid in all_proposals.clone() {
+        if proposalid <= max_proposal_claimed {
+            continue;
+        }
+        let vote = VOTERSPROPOSAL.load(deps.storage, (address.to_owned(), proposalid))?;
+        let proposal1 = PROPOSAL.load(deps.storage, proposalid)?;
+        if vote.bribe_claimed {
+            return Err(ContractError::CustomError {
+                val: "Bribe Already Claimed".to_string(),
+            });
+        }
+        let total_vote_weight = PROPOSALVOTE
+            .load(deps.storage, (proposal1.app_id, vote.extended_pair))?
+            .u128();
+        let total_bribe =
+            BRIBES_BY_PROPOSAL.load(deps.storage, (proposal1.app_id, vote.extended_pair))?;
+
+        let mut claimable_bribe: Vec<Coin> = vec![];
+
+        for coin in total_bribe.clone() {
+            let claimable_amount = (vote.vote_weight / total_vote_weight) * coin.amount.u128();
+            let claimable_coin = Coin {
+                amount: Uint128::from(claimable_amount),
+                denom: coin.denom,
+            };
+            claimable_bribe.push(claimable_coin);
+        }
+        for bribr_deposited in claimable_bribe.clone() {
+            match bribe_coins
+                .iter_mut()
+                .find(|ref p| bribr_deposited.denom == p.denom)
+            {
+                Some(pivot) => {
+                    pivot.denom = bribr_deposited.denom;
+                    pivot.amount += bribr_deposited.amount;
+                }
+                None => {
+                    bribe_coins.push(bribr_deposited);
+                }
+            }
+        }
+    }
+    Ok(bribe_coins)
+}
 
 #[cfg(test)]
 mod tests {
@@ -258,14 +316,14 @@ mod tests {
         VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data);
 
         // Query the withdrawable balance; should be 250
-        let res = query_withdrawable(deps.as_ref(), env.clone(), info.clone(), DENOM.to_string())
-            .unwrap();
-        assert_eq!(
-            res.amount,
-            Coin {
-                denom: DENOM.to_string(),
-                amount: Uint128::from(250u128)
-            }
-        );
+        // let res = query_withdrawable(deps.as_ref(), env.clone(), DENOM.to_string())
+        //     .unwrap();
+        // assert_eq!(
+        //     res.amount,
+        //     Coin {
+        //         denom: DENOM.to_string(),
+        //         amount: Uint128::from(250u128)
+        //     }
+        // );
     }
 }
