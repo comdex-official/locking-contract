@@ -5,7 +5,7 @@ use cosmwasm_std::{
     Response, StdError, StdResult, Storage, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
-use std::ops::{Div, Mul, SubAssign};
+use std::ops::{Div, Mul};
 
 use crate::error::ContractError;
 use crate::helpers::{
@@ -86,10 +86,7 @@ pub fn execute(
             locking_period,
         } => handle_lock_nft(deps, env, info, app_id, locking_period),
 
-        ExecuteMsg::Withdraw {
-            denom,
-            locking_period,
-        } => handle_withdraw(deps, env, info, denom, locking_period),
+        ExecuteMsg::Withdraw { denom } => handle_withdraw(deps, env, info, denom),
 
         ExecuteMsg::Transfer {
             recipent,
@@ -185,6 +182,8 @@ fn lock_funds(
                 vtokens: vec![],
                 token_id: state.num_tokens,
             };
+
+            STATE.save(deps.storage, &state)?;
 
             new_nft.vtokens.push(new_vtoken.clone());
             TOKENS.save(deps.storage, sender.clone(), &new_nft)?;
@@ -325,9 +324,13 @@ fn update_denom_supply(
         denom_supply_struct.token += quantity;
     } else {
         if denom_supply_struct.vtoken < vquantity {
-            return Err(ContractError::InsufficientFunds { funds: vquantity });
+            return Err(ContractError::InsufficientFunds {
+                funds: denom_supply_struct.vtoken,
+            });
         } else if denom_supply_struct.token < quantity {
-            return Err(ContractError::InsufficientFunds { funds: quantity });
+            return Err(ContractError::InsufficientFunds {
+                funds: denom_supply_struct.token,
+            });
         }
 
         denom_supply_struct.vtoken -= vquantity;
@@ -345,7 +348,6 @@ pub fn handle_withdraw(
     env: Env,
     info: MessageInfo,
     denom: String,
-    locking_period: LockingPeriod,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     if info.funds.len() != 0 {
         return Err(ContractError::FundsNotAllowed {});
@@ -366,21 +368,23 @@ pub fn handle_withdraw(
     let vtokens: Vec<(usize, &Vtoken)> = vtokens_denom
         .iter()
         .enumerate()
-        .filter(|s| s.1.period == locking_period && s.1.end_time < env.block.time)
+        .filter(|s| s.1.end_time < env.block.time)
         .collect();
 
     // No unlocked tokens
     if vtokens.is_empty() {
         return Err(ContractError::NotFound {
-            msg: format!("No unlocked tokens found for {:?}", locking_period),
+            msg: format!("No unlocked tokens found for {:?}", denom),
         });
     }
 
     // Calculate total withdrawable amount and remove the corresponding VToken
     let mut withdrawable = 0u128;
+    let mut vwithdrawable = 0u128;
     let mut indices: Vec<usize> = vec![];
     for (index, vtoken) in vtokens {
         withdrawable += vtoken.token.amount.u128();
+        vwithdrawable += vtoken.vtoken.amount.u128();
         indices.push(index);
     }
     for index in indices {
@@ -393,17 +397,8 @@ pub fn handle_withdraw(
         VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &vtokens_denom)?;
     };
 
-    {
-        let PeriodWeight { weight, period: _ } =
-            get_period(STATE.load(deps.as_ref().storage)?, locking_period.clone())?;
-
-        let mut supply = SUPPLY.load(deps.as_ref().storage, &denom)?;
-
-        supply.token.sub_assign(withdrawable);
-        supply.vtoken -= (Uint128::from(withdrawable) * weight).u128();
-
-        SUPPLY.save(deps.storage, &denom, &supply)?;
-    }
+    // Reduce the total supply
+    update_denom_supply(deps.storage, &denom, vwithdrawable, withdrawable, false)?;
 
     // Update nft
     let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
@@ -411,11 +406,7 @@ pub fn handle_withdraw(
         .vtokens
         .iter()
         .enumerate()
-        .filter(|el| {
-            el.1.token.denom == denom
-                && el.1.period == locking_period
-                && el.1.end_time < env.block.time
-        })
+        .filter(|el| el.1.token.denom == denom && el.1.end_time < env.block.time)
         .collect();
 
     // Remove the unlocked tokens
@@ -1536,14 +1527,8 @@ mod tests {
 
         // Withdrawing 10 Tokens
         let info = mock_info("owner", &[]);
-        let res = handle_withdraw(
-            deps.as_mut(),
-            env.clone(),
-            info.clone(),
-            DENOM.to_string(),
-            LockingPeriod::T1,
-        )
-        .unwrap();
+        let res =
+            handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string()).unwrap();
         assert_eq!(res.messages.len(), 1);
         assert_eq!(res.attributes.len(), 2);
         assert_eq!(
@@ -1583,14 +1568,8 @@ mod tests {
         let env = mock_env();
         let info = mock_info("sender", &[]);
 
-        let res = handle_withdraw(
-            deps.as_mut(),
-            env.clone(),
-            info.clone(),
-            DENOM.to_string(),
-            LockingPeriod::T1,
-        )
-        .unwrap_err();
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
+            .unwrap_err();
         match res {
             ContractError::NotFound { .. } => {}
             e => panic!("{:?}", e),
@@ -1616,18 +1595,8 @@ mod tests {
         let info = mock_info("owner", &coins(100, DENOM.to_string()));
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
-        let res = handle_withdraw(
-            deps.as_mut(),
-            env.clone(),
-            info.clone(),
-            DENOM.to_string(),
-            LockingPeriod::T1,
-        )
-        .unwrap_err();
-        // match res {
-        //     ContractError::NotUnlocked { .. } => {}
-        //     e => panic!("{:?}", e),
-        // };
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
+            .unwrap_err();
     }
 
     #[test]
@@ -1650,14 +1619,8 @@ mod tests {
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
         let info = mock_info("owner", &[]);
-        let res = handle_withdraw(
-            deps.as_mut(),
-            env.clone(),
-            info.clone(),
-            DENOM.to_string(),
-            LockingPeriod::T1,
-        )
-        .unwrap_err();
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
+            .unwrap_err();
         match res {
             ContractError::NotFound { .. } => {}
             e => panic!("{:?}", e),
@@ -1684,14 +1647,8 @@ mod tests {
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
         let info = mock_info("owner", &[]);
-        let res = handle_withdraw(
-            deps.as_mut(),
-            env.clone(),
-            info.clone(),
-            "DNM1".to_string(),
-            LockingPeriod::T1,
-        )
-        .unwrap_err();
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), "DNM1".to_string())
+            .unwrap_err();
         match res {
             ContractError::NotFound { .. } => {}
             e => panic!("{:?}", e),

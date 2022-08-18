@@ -47,7 +47,6 @@ pub enum ExecuteMsg {
     },
     Withdraw {
         denom: String,
-        locking_period: LockingPeriod,
     },
     Transfer {
         recipent: String,
