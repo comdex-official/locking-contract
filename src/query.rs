@@ -2,16 +2,13 @@
 
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, Binary, Coin, Deps, Env, MessageInfo, StdError, StdResult,
-    Uint128,
+    entry_point, to_binary, Addr, Binary, Coin, Deps, Env, StdError, StdResult, Uint128,
 };
 
-use crate::contract::calculate_bribe_reward;
-use crate::msg::{IssuedNftResponse, IssuedVtokensResponse, QueryMsg, WithdrawableResponse};
+use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse};
 use crate::state::{
-    Proposal, State, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
-    COMPLETEDPROPOSALS, MAXPROPOSALCLAIMED, PROPOSAL, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL,
-    VOTERS_VOTE, VTOKENS,
+    Proposal, State, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, PROPOSAL,
+    STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -258,8 +255,13 @@ mod tests {
         VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data);
 
         // Query the withdrawable balance; should be 250
-        let res = query_withdrawable(deps.as_ref(), env.clone(), info.clone(), DENOM.to_string())
-            .unwrap();
+        let res = query_withdrawable(
+            deps.as_ref(),
+            env.clone(),
+            info.sender.to_string(),
+            DENOM.to_string(),
+        )
+        .unwrap();
         assert_eq!(
             res.amount,
             Coin {

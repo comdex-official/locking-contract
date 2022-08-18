@@ -1,12 +1,11 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo,
-    QueryRequest, Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmQuery,
+    to_binary, Addr, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
+    Response, StdError, StdResult, Storage, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
-use schemars::_serde_json::de;
-use std::ops::{AddAssign, Div, Mul, Sub, SubAssign};
+use std::ops::{Div, Mul, SubAssign};
 
 use crate::error::ContractError;
 use crate::helpers::{
@@ -15,8 +14,8 @@ use crate::helpers::{
 };
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use crate::state::{
-    Emission, LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE,
-    SUPPLY, TOKENS, VTOKENS,
+    LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
+    TOKENS, VTOKENS,
 };
 use crate::state::{
     Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
@@ -393,6 +392,18 @@ pub fn handle_withdraw(
     } else {
         VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &vtokens_denom)?;
     };
+
+    {
+        let PeriodWeight { weight, period: _ } =
+            get_period(STATE.load(deps.as_ref().storage)?, locking_period.clone())?;
+
+        let mut supply = SUPPLY.load(deps.as_ref().storage, &denom)?;
+
+        supply.token.sub_assign(withdrawable);
+        supply.vtoken -= (Uint128::from(withdrawable) * weight).u128();
+
+        SUPPLY.save(deps.storage, &denom, &supply)?;
+    }
 
     // Update nft
     let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
