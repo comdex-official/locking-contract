@@ -387,7 +387,7 @@ pub fn handle_withdraw(
         vwithdrawable += vtoken.vtoken.amount.u128();
         indices.push(index);
     }
-    for index in indices {
+    for index in indices.into_iter().rev() {
         vtokens_denom.remove(index);
     }
     // Update VTOKENS
@@ -414,7 +414,7 @@ pub fn handle_withdraw(
     for (index, _) in denom_indicies.into_iter() {
         indices.push(index);
     }
-    for index in indices {
+    for index in indices.into_iter().rev() {
         nft.vtokens.remove(index);
     }
     TOKENS.save(deps.storage, info.sender.clone(), &nft)?;
