@@ -49,6 +49,8 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             to_binary(&query_withdrawable(deps, env, address, denom)?)
         }
 
+        QueryMsg::State {} => to_binary(&query_state(deps, env)?),
+
         _ => panic!("Not implemented"),
     }
 }
