@@ -82,7 +82,7 @@ pub struct State {
     pub t4: PeriodWeight,
     pub num_tokens: u64,
     pub vesting_contract: Addr,
-    pub foundation_addr: Vec<Addr>,
+    pub foundation_addr: Vec<String>,
     pub foundation_percentage: Decimal,
     pub voting_period:u64,
     pub surplus_asset_id:u64,
@@ -111,8 +111,8 @@ pub const VTOKENS: Map<(Addr, &str), Vec<Vtoken>> = Map::new("Vtokens by owner")
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Proposal {
     pub app_id: u64,
-    pub voting_start_time: u64,
-    pub voting_end_time: u64,
+    pub voting_start_time: Timestamp,
+    pub voting_end_time: Timestamp,
     pub extended_pair: Vec<u64>,
     pub emission_completed: bool,
     pub rebase_completed: bool,
@@ -150,26 +150,23 @@ pub struct Rewards {
 }
 
 
-pub const VOTINGPERIOD: Item<u64> = Item::new("Voting_period");
 
-pub const PROPOSALCOUNT: Item<u64> = Item::new("Voting_period");
+pub const PROPOSALCOUNT: Item<u64> = Item::new("Proposal Count");
 
-pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("App_Current_proposal");
+pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("App Current_proposal");
 
 pub const PROPOSALVOTE: Map<(u64, u64), Uint128> = Map::new("Proposal vote");
 
-pub const PROPOSAL: Map<u64, Proposal> = Map::new("Proposal vote");
+pub const PROPOSAL: Map<u64, Proposal> = Map::new("Proposal");
 
-pub const BRIBES_BY_PROPOSAL: Map<(u64, u64), Vec<Coin>> = Map::new("Proposal vote");
+pub const BRIBES_BY_PROPOSAL: Map<(u64, u64), Vec<Coin>> = Map::new("BRIBES_BY_PROPOSALe");
 
-pub const EMISSION: Map<u64, Emission> = Map::new("Proposal vote");
+pub const EMISSION: Map<u64, Emission> = Map::new("Emission");
 
-pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("has voted");
+pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("Has voted");
 
-pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("has voted");
+pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("Proposal Vote by voter");
 
-pub const CLAIMABLEREWARD: Map<(u64,Addr), Rewards> = Map::new("has voted");
+pub const MAXPROPOSALCLAIMED: Map<(u64,Addr), u64> = Map::new("max proposal claimed");
 
-pub const MAXPROPOSALCLAIMED: Map<(u64,Addr), u64> = Map::new("has voted");
-
-pub const COMPLETEDPROPOSALS: Map<u64,Vec<u64>>= Map::new("has voted");
+pub const COMPLETEDPROPOSALS: Map<u64,Vec<u64>>= Map::new("completed proposals");

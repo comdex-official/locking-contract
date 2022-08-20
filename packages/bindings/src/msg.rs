@@ -1,4 +1,4 @@
-use cosmwasm_std::{Coin, CosmosMsg, CustomMsg, Decimal, Uint128,Addr};
+use cosmwasm_std::{Coin, CosmosMsg, CustomMsg, Decimal, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -113,26 +113,26 @@ pub enum ComdexMessages {
     },
     MsgEmissionRewards {
         app_id: u64,
-        emission_amount :u128,
+        amount :Uint128,
         extended_pair : Vec<u64>,
         voting_ratio: Vec<Uint128>
     }
 ,
     MsgFoundationEmission {
     app_id: u64,
-    amount :u128,
-    foundation_address : Vec<Addr>,
+    amount :Uint128,
+    foundation_address : Vec<String>,
     },
 
     MsgRebaseMint {
         app_id: u64,
-        amount :u128,
-        contract_addr : Addr,
+        amount :Uint128,
+        contract_addr : String,
         },
     MsgGetSurplusFund{
         app_id: u64,
         asset_id: u64,
-        contract_addr: Addr,
+        contract_addr: String,
         amount: Coin,
     }    
         
