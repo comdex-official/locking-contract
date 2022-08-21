@@ -8,7 +8,8 @@ use cosmwasm_std::{
     Uint128
 };
 use crate::error::ContractError;
-
+use cw_storage_plus::Bound;
+use std::cmp::Ordering;
 use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse};
 use crate::state::{
     Proposal, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
@@ -94,6 +95,7 @@ pub fn query_issued_nft(
     }
 }
 
+
 pub fn query_issued_vtokens(
     deps: Deps<ComdexQuery>,
     _env: Env,
@@ -107,6 +109,7 @@ pub fn query_issued_vtokens(
 
     Ok(state)
 }
+
 
 pub fn query_issued_supply(
     deps: Deps<ComdexQuery>,
@@ -241,9 +244,7 @@ pub fn calculate_bribe_reward_query(
             Some(val) => val,
             None => continue
         };
-        if vote.bribe_claimed {
-            continue;
-        }
+
         let total_vote_weight = PROPOSALVOTE
             .load(deps.storage, (proposal1.app_id, vote.extended_pair))?
             .u128();

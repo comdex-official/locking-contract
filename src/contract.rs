@@ -50,11 +50,13 @@ pub fn instantiate(
 
     //// Set Contract version
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-
     //// Set State
     STATE.save(deps.storage, &state)?;
+
     EMISSION.save(deps.storage, msg.emission.app_id, &msg.emission)?;
+
     PROPOSALCOUNT.save(deps.storage, &0)?;
+
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("owner", info.sender))
@@ -121,15 +123,17 @@ pub fn emission_foundation(
     }
 
     let state = STATE.load(deps.storage)?;
+
     let foundation_addr = state.foundation_addr;
+
     let foundation_emission = proposal.foundation_distributed;
+
     //// addr binding pending
-    let emission_msg = ComdexMessages::MsgFoundationEmission {
-        app_id: proposal.app_id,
-        amount: Uint128::from(foundation_emission),
-        foundation_address: foundation_addr,
-    };
+    let emission_msg = ComdexMessages::MsgFoundationEmission {app_id: proposal.app_id,
+                                                                              amount: Uint128::from(foundation_emission),
+                                                                              foundation_address: foundation_addr,};
     proposal.foundation_emission_completed = true;
+
     PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
 
     Ok(Response::new()
@@ -138,6 +142,8 @@ pub fn emission_foundation(
         .add_attribute("from", info.sender)
         )
 }
+
+
 fn lock_funds(
     deps: DepsMut<ComdexQuery>,
     env: Env,
@@ -593,7 +599,8 @@ pub fn bribe_proposal(
     // bribe denom should be a single coin
     if info.funds.is_empty() {
         return Err(ContractError::InsufficientFunds { funds: 0 });
-    } else if info.funds.len() > 1 {
+    } 
+    else if info.funds.len() > 1 {
         return Err(ContractError::CustomError {
             val: String::from("Multiple denominations are not supported as yet."),
         });
@@ -619,24 +626,22 @@ pub fn bribe_proposal(
         Some(record) => record,
         None => vec![],
     };
+
     if existing_bribes.len()>=1{
         let mut found = false;
-    for  coin1 in existing_bribes.iter_mut() {
-        if bribe_coin.denom == coin1.denom {
-            coin1.amount += bribe_coin.amount;
-            found = true;
-        }
-    }
+        for  coin1 in existing_bribes.iter_mut() {
+                if bribe_coin.denom == coin1.denom {
+                        coin1.amount += bribe_coin.amount;
+                        found = true;
+                     }
+            }
         if !found {
             existing_bribes.push(bribe_coin.clone());
     }
-    
     }
-
     else{
         existing_bribes=vec![bribe_coin];
     }
-    
     
     BRIBES_BY_PROPOSAL.save(deps.storage, (proposal_id, extended_pair), &existing_bribes)?;
     Ok(Response::new()
@@ -661,6 +666,7 @@ pub fn claim_rewards(
         None => vec![],
 
     };
+
     calculate_rebase_reward(
         deps.branch(),
         env.clone(),
@@ -1170,7 +1176,6 @@ pub fn vote_proposal(
         app_id: app_id,
         extended_pair: extended_pair,
         vote_weight: vote_power,
-        bribe_claimed: false,
     };
 
     VOTERSPROPOSAL.save(deps.storage, (info.sender, proposal_id), &vote)?;

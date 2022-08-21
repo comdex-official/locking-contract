@@ -140,7 +140,6 @@ pub struct Vote {
     pub app_id: u64,
     pub extended_pair: u64,
     pub vote_weight: u128,
-    pub bribe_claimed: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
