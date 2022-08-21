@@ -56,7 +56,6 @@ pub enum ExecuteMsg {
     FoundationRewards {
         proposal_id: u64,
     },
-    
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -71,6 +70,8 @@ pub enum QueryMsg {
     IssuedVtokens {
         address: Addr,
         denom: String,
+        start_after: u32,
+        limit: Option<u32>,
     },
     VestedTokens {
         denom: String,
@@ -108,30 +109,28 @@ pub enum QueryMsg {
         address: String,
         denom: String,
     },
-    TotalVTokens
-    {
-        address:Addr,
-        denom:String
+    TotalVTokens {
+        address: Addr,
+        denom: String,
     },
-    State{ },
-    Emission{app_id : u64},
-    ExtendedPairVote{proposal_id: u64 ,
-                     extended_pair_id:u64},
-                  
-                     
-
+    State {},
+    Emission {
+        app_id: u64,
+    },
+    ExtendedPairVote {
+        proposal_id: u64,
+        extended_pair_id: u64,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SudoMsg {
-    UpdateVestingContract {
-        address: Addr,
-    },
+    UpdateVestingContract { address: Addr },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MigrateMsg { }
+pub struct MigrateMsg {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct IssuedNftResponse {

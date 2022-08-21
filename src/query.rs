@@ -2,70 +2,118 @@
 
 use std::borrow::Borrow;
 
-use comdex_bindings::ComdexQuery;
-use cosmwasm_std::{
-    entry_point, to_binary, Addr, Binary, Coin, Deps, Env, StdError, StdResult,
-    Uint128
-};
 use crate::error::ContractError;
-use cw_storage_plus::Bound;
-use std::cmp::Ordering;
 use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse};
 use crate::state::{
-    Proposal, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
-    COMPLETEDPROPOSALS, MAXPROPOSALCLAIMED, PROPOSAL, SUPPLY, TOKENS, VOTERSPROPOSAL,
-    VOTERS_VOTE, VTOKENS,PROPOSALVOTE,State,STATE,EMISSION,Emission
+    Emission, Proposal, State, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
+    COMPLETEDPROPOSALS, EMISSION, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, STATE, SUPPLY,
+    TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
+use comdex_bindings::ComdexQuery;
+use cosmwasm_std::{
+    entry_point, to_binary, Addr, Binary, Coin, Deps, Env, StdError, StdResult, Uint128,
+};
+use cw_storage_plus::Bound;
+use std::cmp::Ordering;
+
+const MAX_LIMIT: u32 = 30;
+const DEFAULT_LIMIT: u32 = 10;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::IssuedNft { address } => to_binary(&query_issued_nft(deps, env, address)?),
-        QueryMsg::IssuedVtokens { address, denom } => {to_binary(&query_issued_vtokens(deps, env, address, denom)?)},
+        QueryMsg::IssuedVtokens {
+            address,
+            denom,
+            start_after,
+            limit,
+        } => to_binary(&query_issued_vtokens(
+            deps,
+            env,
+            address,
+            denom,
+            start_after,
+            limit,
+        )?),
         QueryMsg::Supply { denom } => to_binary(&query_issued_supply(deps, env, denom)?),
-        QueryMsg::CurrentProposal { app_id } => {to_binary(&query_current_proposal(deps, env, app_id)?)},
+        QueryMsg::CurrentProposal { app_id } => {
+            to_binary(&query_current_proposal(deps, env, app_id)?)
+        }
         QueryMsg::Proposal { proposal_id } => to_binary(&query_proposal(deps, env, proposal_id)?),
-        QueryMsg::BribeByProposal {proposal_id,extended_pair_id,} => to_binary(&query_bribe(deps, env, proposal_id, extended_pair_id)?),
-        QueryMsg::Vote {proposal_id,address} => to_binary(&query_vote(deps, env, address, proposal_id)?),
-        QueryMsg::ClaimableBribe { address, app_id } => {to_binary(&query_bribe_eligible(deps, env, address, app_id)?)},
-        QueryMsg::Withdrawable { address, denom } => {to_binary(&query_withdrawable(deps, env, address, denom)?)},
-        QueryMsg::TotalVTokens{address,denom} =>  {to_binary(&query_vtoken_balance(deps, env,address,denom)?)},
-        QueryMsg::State {  } => to_binary(&query_state(deps, env)?),
+        QueryMsg::BribeByProposal {
+            proposal_id,
+            extended_pair_id,
+        } => to_binary(&query_bribe(deps, env, proposal_id, extended_pair_id)?),
+        QueryMsg::Vote {
+            proposal_id,
+            address,
+        } => to_binary(&query_vote(deps, env, address, proposal_id)?),
+        QueryMsg::ClaimableBribe { address, app_id } => {
+            to_binary(&query_bribe_eligible(deps, env, address, app_id)?)
+        }
+        QueryMsg::Withdrawable { address, denom } => {
+            to_binary(&query_withdrawable(deps, env, address, denom)?)
+        }
+        QueryMsg::TotalVTokens { address, denom } => {
+            to_binary(&query_vtoken_balance(deps, env, address, denom)?)
+        }
+        QueryMsg::State {} => to_binary(&query_state(deps, env)?),
         QueryMsg::Emission { app_id } => to_binary(&query_emission(deps, env, app_id)?),
-        QueryMsg::ExtendedPairVote { proposal_id, extended_pair_id } => to_binary(&query_extendedpairvote(deps, env, proposal_id,extended_pair_id)?),
-        QueryMsg::HasVoted { address, proposal_id } =>to_binary(&query_is_voted(deps, env, address,proposal_id)?),
+        QueryMsg::ExtendedPairVote {
+            proposal_id,
+            extended_pair_id,
+        } => to_binary(&query_extendedpairvote(
+            deps,
+            env,
+            proposal_id,
+            extended_pair_id,
+        )?),
+        QueryMsg::HasVoted {
+            address,
+            proposal_id,
+        } => to_binary(&query_is_voted(deps, env, address, proposal_id)?),
         _ => panic!("Not implemented"),
     }
 }
 
-
-
-pub fn query_emission(deps: Deps<ComdexQuery>, _env: Env, proposal_id: u64) -> StdResult<Option<Emission>> {
+pub fn query_emission(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    proposal_id: u64,
+) -> StdResult<Option<Emission>> {
     let supply = EMISSION.may_load(deps.storage, proposal_id)?;
     Ok(supply)
 }
 
-pub fn query_extendedpairvote(deps: Deps<ComdexQuery>, _env: Env,proposal_id:u64, extended_pair_id: u64) -> StdResult<Option<Uint128>> {
-    let supply = PROPOSALVOTE.may_load(deps.storage, (proposal_id,extended_pair_id))?;
-    
+pub fn query_extendedpairvote(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    proposal_id: u64,
+    extended_pair_id: u64,
+) -> StdResult<Option<Uint128>> {
+    let supply = PROPOSALVOTE.may_load(deps.storage, (proposal_id, extended_pair_id))?;
+
     Ok(supply)
 }
 
-
-pub fn query_vtoken_balance(deps: Deps<ComdexQuery>, _env: Env,address: Addr,
-    denom:String) -> StdResult<Uint128> {
+pub fn query_vtoken_balance(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    address: Addr,
+    denom: String,
+) -> StdResult<Uint128> {
     let vtokens = VTOKENS.may_load(deps.storage, (address, &denom))?;
-    if vtokens.is_none()
-    {
+    if vtokens.is_none() {
         return Ok(Uint128::zero());
     }
 
-    let  vtokens=vtokens.unwrap();
-    let mut total_vtoken:u128=0;
+    let vtokens = vtokens.unwrap();
+    let mut total_vtoken: u128 = 0;
     for vtoken in vtokens.clone() {
         total_vtoken += vtoken.vtoken.amount.u128();
-    }    
-    
+    }
+
     Ok(Uint128::from(total_vtoken))
 }
 
@@ -95,21 +143,41 @@ pub fn query_issued_nft(
     }
 }
 
-
 pub fn query_issued_vtokens(
     deps: Deps<ComdexQuery>,
     _env: Env,
     address: Addr,
     denom: String,
+    start: u32,
+    limit: Option<u32>,
 ) -> StdResult<Vec<Vtoken>> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    let start = start as usize;
+    let checkpoint = start + limit;
+
     let state = match VTOKENS.may_load(deps.storage, (address, &denom))? {
-        Some(val) => val,
+        Some(val) => {
+            // If the vec len is smaller than start_after, throw err
+            let length = val.len();
+            if length <= start {
+                return Err(StdError::GenericErr {
+                    msg: format!("count of vtokens is less than {:?}", start),
+                });
+            }
+
+            // If the checkpoint is >= length, then return all remaining elements
+            // else return the specific elements
+            if checkpoint >= length {
+                val[start..].to_vec()
+            } else {
+                val[start..checkpoint].to_vec()
+            }
+        }
         None => vec![],
     };
 
     Ok(state)
 }
-
 
 pub fn query_issued_supply(
     deps: Deps<ComdexQuery>,
@@ -125,7 +193,11 @@ pub fn query_current_proposal(deps: Deps<ComdexQuery>, _env: Env, app_id: u64) -
     Ok(supply.unwrap_or(0))
 }
 
-pub fn query_proposal(deps: Deps<ComdexQuery>, _env: Env, proposal_id: u64) -> StdResult<Option<Proposal>> {
+pub fn query_proposal(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    proposal_id: u64,
+) -> StdResult<Option<Proposal>> {
     let supply = PROPOSAL.may_load(deps.storage, proposal_id)?;
     Ok(supply)
 }
@@ -134,7 +206,7 @@ pub fn query_bribe(
     deps: Deps<ComdexQuery>,
     _env: Env,
     proposal_id: u64,
-    extended_pair_id:u64,
+    extended_pair_id: u64,
 ) -> StdResult<Option<Vec<Coin>>> {
     let supply = BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposal_id, extended_pair_id))?;
     Ok(supply)
@@ -201,12 +273,10 @@ pub fn query_bribe_eligible(
         .load(deps.storage, (app_id, address.clone()))
         .unwrap_or_default();
 
-    let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)?
-    {
-        Some(val)=>val,
-        None => vec![]
+    let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
+        Some(val) => val,
+        None => vec![],
     };
-
 
     let bribe_coins = calculate_bribe_reward_query(
         deps,
@@ -218,7 +288,6 @@ pub fn query_bribe_eligible(
     );
     Ok(bribe_coins.unwrap_or_default())
 }
-
 
 pub fn calculate_bribe_reward_query(
     deps: Deps<ComdexQuery>,
@@ -234,21 +303,20 @@ pub fn calculate_bribe_reward_query(
         if proposalid <= max_proposal_claimed {
             continue;
         }
-        let vote = match VOTERSPROPOSAL.may_load(deps.storage, (address.to_owned(), proposalid))?
-         {
+        let vote = match VOTERSPROPOSAL.may_load(deps.storage, (address.to_owned(), proposalid))? {
             Some(val) => val,
-            None => continue
+            None => continue,
         };
-        let proposal1 = match PROPOSAL.may_load(deps.storage, proposalid)?
-        {
+        let proposal1 = match PROPOSAL.may_load(deps.storage, proposalid)? {
             Some(val) => val,
-            None => continue
+            None => continue,
         };
 
         let total_vote_weight = PROPOSALVOTE
             .load(deps.storage, (proposal1.app_id, vote.extended_pair))?
             .u128();
-        let total_bribe =match BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposal1.app_id, vote.extended_pair))?
+        let total_bribe = match BRIBES_BY_PROPOSAL
+            .may_load(deps.storage, (proposal1.app_id, vote.extended_pair))?
         {
             Some(val) => val,
             None => vec![],
@@ -285,7 +353,7 @@ pub fn calculate_bribe_reward_query(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{LockingPeriod,  Status};
+    use crate::state::{LockingPeriod, Status};
     use comdex_bindings::ComdexQuery;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
     use cosmwasm_std::{OwnedDeps, Timestamp, Uint128};
@@ -305,7 +373,7 @@ mod tests {
     #[test]
     fn withdrawable() {
         let mut deps = mock_dependencies();
-        let  env = mock_env();
+        let env = mock_env();
         let info = mock_info("sender", &[]);
 
         // Store some test vtokens
@@ -339,7 +407,7 @@ mod tests {
                 status: Status::Locked,
             },
         ];
-        _=VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data);
+        _ = VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data);
 
         // Query the withdrawable balance; should be 250
         // let res = query_withdrawable(deps.as_ref(), env.clone(), DENOM.to_string())
