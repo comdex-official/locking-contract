@@ -1,5 +1,3 @@
-// !------- IssuedVtokens query not implemented-------!
-
 use std::borrow::Borrow;
 
 use crate::error::ContractError;
@@ -13,8 +11,6 @@ use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Deps, Env, StdError, StdResult, Uint128,
 };
-use cw_storage_plus::Bound;
-use std::cmp::Ordering;
 
 const MAX_LIMIT: u32 = 30;
 const DEFAULT_LIMIT: u32 = 10;
@@ -148,26 +144,22 @@ pub fn query_issued_vtokens(
     _env: Env,
     address: Addr,
     denom: String,
-    start: u32,
+    start_after: u32,
     limit: Option<u32>,
 ) -> StdResult<Vec<Vtoken>> {
     let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
-    let start = start as usize;
+    let start = start_after as usize;
     let checkpoint = start + limit;
 
     let state = match VTOKENS.may_load(deps.storage, (address, &denom))? {
         Some(val) => {
-            // If the vec len is smaller than start_after, throw err
-            let length = val.len();
-            if length <= start {
-                return Err(StdError::GenericErr {
-                    msg: format!("count of vtokens is less than {:?}", start),
-                });
-            }
-
+            // If the vec len is smaller than start_after, then empty vec
             // If the checkpoint is >= length, then return all remaining elements
             // else return the specific elements
-            if checkpoint >= length {
+            let length = val.len();
+            if length <= start {
+                vec![]
+            } else if checkpoint >= length {
                 val[start..].to_vec()
             } else {
                 val[start..checkpoint].to_vec()
