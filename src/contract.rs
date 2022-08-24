@@ -93,13 +93,11 @@ pub fn execute(
             locking_period,
             denom,
         } => handle_transfer(deps, env, info, recipent, locking_period, denom),
-        ExecuteMsg::FoundationRewards { proposal_id } => {
-            emission_foundation(deps, env, info, proposal_id)
-        }
-        ExecuteMsg::Rebase { proposal_id,app_id } => {
-            calculate_rebase_reward(deps, env, info, proposal_id,app_id)
-        }
-
+        ExecuteMsg::FoundationRewards { proposal_id } => 
+            emission_foundation(deps, env, info, proposal_id),
+        ExecuteMsg::Rebase { proposal_id,app_id } => 
+            calculate_rebase_reward(deps, env, info, proposal_id,app_id),
+        
         _ => panic!("Not implemented"),
     }
 }
@@ -1129,11 +1127,7 @@ pub fn vote_proposal(
     //// check if already voted for proposal
     let has_voted = VOTERS_VOTE.may_load(deps.storage, (info.sender.clone(), proposal_id))?.unwrap_or_default();
  
-    if has_voted{
-        return Err(ContractError::CustomError {
-            val: "Already voted for the proposal".to_string(),
-        });
-    }
+   
 
     //// get App Data
     let app_response = query_app_exists(deps.as_ref(), app_id)?;
@@ -1181,31 +1175,98 @@ pub fn vote_proposal(
         vote_power += vtoken.vtoken.amount.u128();
     }
 
+  
     // Update proposal Vote for an app
 
-    let proposal_vote = PROPOSALVOTE
+    let mut proposal_vote = PROPOSALVOTE
         .load(deps.storage, (proposal_id, extended_pair))
         .unwrap_or_default();
 
-    let updated_vote=Uint128::from(vote_power)+ proposal_vote;
+    // if already voted , update voting stats    
+    if has_voted{
+        let prev_vote=VOTERSPROPOSAL.load(deps.storage, (info.sender.clone(),proposal_id))?;
+        let last_vote_weight=prev_vote.vote_weight;
+        let last_voted_pair=prev_vote.extended_pair;
+        if last_voted_pair==extended_pair
+        {
+            proposal_vote=proposal_vote-Uint128::from(last_vote_weight);
+            proposal.total_voted_weight-=last_vote_weight;
+            proposal_vote=proposal_vote+Uint128::from(vote_power);
+            proposal.total_voted_weight+=vote_power;
+            PROPOSALVOTE.save(
+                deps.storage,
+                (proposal_id, extended_pair),
+                &proposal_vote,
+            )?;
+            PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
+            let vote = Vote {
+                app_id: app_id,
+                extended_pair: extended_pair,
+                vote_weight: vote_power,
+            };
+            
+            VOTERSPROPOSAL.save(deps.storage, (info.sender.clone(), proposal_id), &vote)?;
+
+        }
+        else {
+            let mut prev_proposal_vote=PROPOSALVOTE
+            .load(deps.storage, (proposal_id, last_voted_pair))
+            .unwrap_or_default();
+
+            prev_proposal_vote=prev_proposal_vote-Uint128::from(last_vote_weight);
+            proposal_vote=proposal_vote+Uint128::from(vote_power);
+            PROPOSALVOTE.save(
+                deps.storage,
+                (proposal_id, extended_pair),
+                &proposal_vote,
+            )?;
+            PROPOSALVOTE.save(
+                deps.storage,
+                (proposal_id, last_voted_pair),
+                &prev_proposal_vote,
+            )?;
+
+            proposal.total_voted_weight-=last_vote_weight;
+            proposal.total_voted_weight+=vote_power;
+            PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
+
+            let vote = Vote {
+                app_id: app_id,
+                extended_pair: extended_pair,
+                vote_weight: vote_power,
+            };
+            
+            VOTERSPROPOSAL.save(deps.storage, (info.sender.clone(), proposal_id), &vote)?;
+
+
+        }
+            
+    }    
+
+else {
+        let updated_vote=Uint128::from(vote_power)+ proposal_vote;
     PROPOSALVOTE.save(
         deps.storage,
         (proposal_id, extended_pair),
         &updated_vote,
     )?;
-    
 
-    VOTERS_VOTE.save(deps.storage, (info.sender.clone(), proposal_id),&true)?;
-
-    // update proposal
-    PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
     let vote = Vote {
         app_id: app_id,
         extended_pair: extended_pair,
         vote_weight: vote_power,
     };
 
-    VOTERSPROPOSAL.save(deps.storage, (info.sender, proposal_id), &vote)?;
+    VOTERSPROPOSAL.save(deps.storage, (info.sender.clone(), proposal_id), &vote)?;
+    PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
+   
+    }
+    
+
+    VOTERS_VOTE.save(deps.storage, (info.sender.clone(), proposal_id),&true)?;
+
+    // update proposal
+    
 
     Ok(Response::new().add_attribute("method", "voted for proposal"))
 }
@@ -1308,13 +1369,24 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
         SudoMsg::UpdateFoundationInfo{addresses,foundation_percentage}=>
         {
             let mut state = STATE.load(deps.storage)?;
-            state.foundation_addr=addresses.iter().map(|e| e.to_string()).collect();;
+            state.foundation_addr=addresses.iter().map(|e| e.to_string()).collect();
             state.foundation_percentage=foundation_percentage;
+            STATE.save(deps.storage,&state)?;
+            Ok(Response::new())
+        },
+        SudoMsg::UpdateLockingPeriod{t1,t2,t3,t4}=>
+        {
+            let mut state = STATE.load(deps.storage)?;
+            state.t1=t1;
+            state.t2=t2;
+            state.t2=t3;
+            state.t2=t4;
             STATE.save(deps.storage,&state)?;
             Ok(Response::new())
         }
 }
 }
+
 #[cfg(test)]
 mod tests {
     use std::marker::PhantomData;

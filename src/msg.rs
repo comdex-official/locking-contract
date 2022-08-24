@@ -130,6 +130,7 @@ pub enum SudoMsg {
     UpdateVestingContract { address: Addr },
     UpdateEmissionRate{emission:Emission},
     UpdateFoundationInfo{addresses: Vec<Addr>,foundation_percentage:Decimal},
+    UpdateLockingPeriod{t1:PeriodWeight,t2:PeriodWeight,t3:PeriodWeight,t4:PeriodWeight},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
