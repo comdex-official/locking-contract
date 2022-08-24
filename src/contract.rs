@@ -1037,11 +1037,13 @@ pub fn emission(
     // mint and distribue to vault owner  based vote portion
     let ext_pair = proposal.extended_pair.clone();
     let mut votes: Vec<Uint128> = vec![];
+    let mut total_vote: Uint128 =Uint128::zero();
     for i in 0..ext_pair.len() {
         let vote = PROPOSALVOTE
             .load(deps.storage, (app_id, ext_pair[i]))
             .unwrap_or(Uint128::from(0 as u32));
         votes.push(vote);
+        total_vote+=vote;
     }
 
     //// UPDATE Foundation Nodes Share
@@ -1082,7 +1084,10 @@ pub fn emission(
         contract_addr: env.contract.address.into_string(),
         amount: surplus.clone(),
     };
+
+    if total_vote!=Uint128::zero(){
     msg.push(emission_msg);
+    }
     msg.push(rebase_msg);
 
     if surplus.amount != Uint128::new(0) {
