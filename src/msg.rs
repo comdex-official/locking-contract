@@ -40,6 +40,7 @@ pub enum ExecuteMsg {
     },
     Rebase {
         proposal_id: u64,
+        app_id: u64,
     },
     Lock {
         app_id: u64,
@@ -127,6 +128,8 @@ pub enum QueryMsg {
 #[serde(rename_all = "snake_case")]
 pub enum SudoMsg {
     UpdateVestingContract { address: Addr },
+    UpdateEmissionRate{emission:Emission},
+    UpdateFoundationInfo{addresses: Vec<Addr>,foundation_percentage:Decimal},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

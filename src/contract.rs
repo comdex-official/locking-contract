@@ -20,6 +20,7 @@ use crate::state::{
 use crate::state::{
     Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
     MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE,
+    LOCKINGADDRESS
     
 };
 use comdex_bindings::{ComdexMessages, ComdexQuery};
@@ -95,6 +96,10 @@ pub fn execute(
         ExecuteMsg::FoundationRewards { proposal_id } => {
             emission_foundation(deps, env, info, proposal_id)
         }
+        ExecuteMsg::Rebase { proposal_id,app_id } => {
+            calculate_rebase_reward(deps, env, info, proposal_id,app_id)
+        }
+
         _ => panic!("Not implemented"),
     }
 }
@@ -110,7 +115,7 @@ pub fn emission_foundation(
     // check emission already compluted and executed
     if !proposal.emission_completed {
         return Err(ContractError::CustomError {
-            val: "Emission caluclation did not take place to initiate rebase calculation"
+            val: "Emission caluclation did not take place to initiate foundation calculation"
                 .to_string(),
         });
     }
@@ -128,7 +133,7 @@ pub fn emission_foundation(
 
     let foundation_emission = proposal.foundation_distributed;
 
-    //// addr binding pending
+    //// message to send tokens to foundation_address
     let emission_msg = ComdexMessages::MsgFoundationEmission {app_id: proposal.app_id,
                                                                               amount: Uint128::from(foundation_emission),
                                                                               foundation_address: foundation_addr,};
@@ -232,6 +237,20 @@ pub fn handle_lock_nft(
     if info.funds[0].amount.is_zero() {
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
+
+    let mut addresses = match LOCKINGADDRESS.may_load(deps.storage, app_id)?
+    {
+        Some(val)=>val ,
+        None => vec![],
+
+    };
+
+    match addresses.binary_search(&info.sender) {
+        Ok(_) => (),
+        Err(_) => { addresses.push(info.sender.clone());
+        }
+    }
+    
 
     let app_response = query_app_exists(deps.as_ref(), app_id)?;
     let gov_token_id = app_response.gov_token_id;
@@ -649,7 +668,7 @@ pub fn bribe_proposal(
 }
 
 pub fn claim_rewards(
-    mut deps: DepsMut<ComdexQuery>,
+    deps: DepsMut<ComdexQuery>,
     env: Env,
     info: MessageInfo,
     app_id: u64,
@@ -666,15 +685,6 @@ pub fn claim_rewards(
         None => vec![],
 
     };
-
-    calculate_rebase_reward(
-        deps.branch(),
-        env.clone(),
-        info.clone(),
-        max_proposal_claimed,
-        all_proposals.clone(),
-        app_id,
-    )?;
 
     let mut bribe_coins = calculate_bribe_reward(
         deps.as_ref(),
@@ -795,31 +805,35 @@ pub fn calculate_bribe_reward(
 pub fn calculate_rebase_reward(
     mut deps: DepsMut<ComdexQuery>,
     env: Env,
-    info: MessageInfo,
-    max_proposal_claimed: u64,
-    all_proposals: Vec<u64>,
-    app_id: u64,
-) -> Result<(), ContractError> {
-    let mut total_rebase_amount: u128 = 0;
-    for proposalid in all_proposals.clone() {
-        if proposalid <= max_proposal_claimed {
-            continue;
-        }
-        let proposal = PROPOSAL.load(deps.storage, proposalid)?;
-        total_rebase_amount += proposal.rebase_distributed;
+    _info: MessageInfo,
+    proposal_id: u64,
+    app_id :u64,
+) -> Result<Response<ComdexMessages>, ContractError> {
 
+    let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+
+    if proposal.rebase_completed{
+        return Err(ContractError::CustomError {
+            val: String::from("Rebase already completed"),
+        });
     }
+    let total_rebase_amount: u128 = proposal.rebase_distributed;
 
     let app_response = query_app_exists(deps.as_ref(), app_id)?;
+
     let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
-    let vtokens = match VTOKENS.may_load(deps.storage, (info.sender.clone(), &gov_token_denom))?
+
+    let  vtokenholders=LOCKINGADDRESS.load(deps.storage, app_id)?;
+
+    for addr in vtokenholders.iter(){
+    let vtokens = match VTOKENS.may_load(deps.storage, (addr.to_owned(), &gov_token_denom))?
     {
         Some(val)=>val ,
         None => vec![],
 
     };
     let supply = SUPPLY.load(deps.storage, &gov_token_denom)?;
-    let total_locked: u128 = supply.vtoken;
+    let total_locked: u128 = supply.token;
     //// get rebase amount per period
     let mut locked_t1: u128 = 0;
     let mut locked_t2: u128 = 0;
@@ -828,10 +842,10 @@ pub fn calculate_rebase_reward(
 
     for vtoken in vtokens.clone() {
         match vtoken.period {
-            LockingPeriod::T1 => locked_t1 += vtoken.vtoken.amount.u128(),
-            LockingPeriod::T2 => locked_t2 += vtoken.vtoken.amount.u128(),
-            LockingPeriod::T3 => locked_t3 += vtoken.vtoken.amount.u128(),
-            LockingPeriod::T4 => locked_t4 += vtoken.vtoken.amount.u128(),
+            LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
+            LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
+            LockingPeriod::T3 => locked_t3 += vtoken.token.amount.u128(),
+            LockingPeriod::T4 => locked_t4 += vtoken.token.amount.u128(),
         }
     }
 
@@ -847,7 +861,7 @@ pub fn calculate_rebase_reward(
         deps.branch(),
         env.clone(),
         app_id,
-        info.sender.clone(),
+        addr.clone(),
         fund_t1,
         LockingPeriod::T1,
     )?;
@@ -861,7 +875,7 @@ pub fn calculate_rebase_reward(
         deps.branch(),
         env.clone(),
         app_id,
-        info.sender.clone(),
+        addr.clone(),
         fund_t2,
         LockingPeriod::T2,
     )?;
@@ -875,7 +889,7 @@ pub fn calculate_rebase_reward(
         deps.branch(),
         env.clone(),
         app_id,
-        info.sender.clone(),
+        addr.clone(),
         fund_t3,
         LockingPeriod::T3,
     )?;
@@ -889,12 +903,17 @@ pub fn calculate_rebase_reward(
         deps.branch(),
         env.clone(),
         app_id,
-        info.sender.clone(),
+        addr.clone(),
         fund_t4,
         LockingPeriod::T4,
     )?;
+        }
 
-    Ok(())
+        proposal.rebase_completed=true;
+        PROPOSAL.save(deps.storage, proposal_id , &proposal)?;
+
+    Ok(Response::new()
+        .add_attribute("method", "rebase all holders"))
 }
 
 pub fn calculate_surplus_reward(
@@ -1029,11 +1048,14 @@ pub fn emission(
     proposal.foundation_distributed = (state.foundation_percentage.mul(effective_emission)).u128();
     //// Update proposal Emission State
     proposal.emission_completed = true;
-    proposal.emission_distributed = effective_emission.u128();
+    //// effective emission
+    proposal.emission_distributed = effective_emission.u128()-(state.foundation_percentage.mul(effective_emission)).u128();
+    // update effective emission
 
+    
     //// UPDATE REBASE AMOUNT
     proposal.rebase_distributed = (reward_emision.mul(percentage_locked)).u128();
-    proposal.rebase_completed=true;
+    //proposal.rebase_completed=true;
     //// EMISSION Data Update
     emission.rewards_pending -= effective_emission.u128();
     emission.distributed_rewards += effective_emission.u128();
@@ -1273,8 +1295,20 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             STATE.save(deps.storage,&state)?;
             Ok(Response::new())
         }
-
-    }
+        SudoMsg::UpdateEmissionRate { emission }=>{
+            
+            EMISSION.save(deps.storage, emission.app_id, &emission)?;
+            Ok(Response::new())
+        }
+        SudoMsg::UpdateFoundationInfo{addresses,foundation_percentage}=>
+        {
+            let mut state = STATE.load(deps.storage)?;
+            state.foundation_addr=addresses.iter().map(|e| e.to_string()).collect();;
+            state.foundation_percentage=foundation_percentage;
+            STATE.save(deps.storage,&state)?;
+            Ok(Response::new())
+        }
+}
 }
 #[cfg(test)]
 mod tests {
