@@ -15,7 +15,7 @@ use crate::helpers::{
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg,SudoMsg};
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE,
-    SUPPLY, TOKENS, VTOKENS,
+    SUPPLY, TOKENS, VTOKENS, 
 };
 use crate::state::{
     Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
