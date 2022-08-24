@@ -245,9 +245,9 @@ pub fn handle_lock_nft(
 
     };
 
-    match addresses.binary_search(&info.sender) {
-        Ok(_) => (),
-        Err(_) => { addresses.push(info.sender.clone());
+    match addresses.contains(&info.sender) {
+        true => (),
+        false => { addresses.push(info.sender.clone());
         }
     }
     
