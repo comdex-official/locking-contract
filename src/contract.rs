@@ -6,7 +6,6 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 use std::ops::{Div, Mul};
-
 use crate::error::ContractError;
 use crate::helpers::{
     get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
