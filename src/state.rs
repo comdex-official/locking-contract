@@ -1,6 +1,6 @@
 use cosmwasm_std::{Addr, Timestamp};
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use cw_storage_plus::{Item, Map };
+use cw_storage_plus::{Item, Map};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -19,8 +19,6 @@ pub enum LockingPeriod {
     T3,
     T4,
 }
-
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -49,17 +47,6 @@ pub struct Vtoken {
     pub status: Status,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum CallType {
-    /// Update only the amount in the Vtoken if another deposit for the same
-    /// locking period exists.
-    UpdateAmount,
-    /// Update amount and time period in the Vtoken, if another deposit for the
-    /// same locking period exists.
-    UpdatePeriod,
-}
-
 /// NFT struct for holding the token info
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -84,8 +71,8 @@ pub struct State {
     pub vesting_contract: Addr,
     pub foundation_addr: Vec<String>,
     pub foundation_percentage: Decimal,
-    pub voting_period:u64,
-    pub surplus_asset_id:u64,
+    pub voting_period: u64,
+    pub surplus_asset_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -107,7 +94,6 @@ pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");
 // Vtoken owned by an address for a specific denom
 pub const VTOKENS: Map<(Addr, &str), Vec<Vtoken>> = Map::new("Vtokens by owner");
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Proposal {
     pub app_id: u64,
@@ -116,14 +102,13 @@ pub struct Proposal {
     pub extended_pair: Vec<u64>,
     pub emission_completed: bool,
     pub rebase_completed: bool,
-    pub foundation_emission_completed:bool,
+    pub foundation_emission_completed: bool,
     pub emission_distributed: u128,
     pub rebase_distributed: u128,
-    pub foundation_distributed : u128,
+    pub foundation_distributed: u128,
     pub total_voted_weight: u128,
     pub total_surplus: Coin,
-    pub height : u64
-
+    pub height: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -148,8 +133,6 @@ pub struct Rewards {
     pub rebase: Coin,
 }
 
-
-
 pub const PROPOSALCOUNT: Item<u64> = Item::new("Proposal Count");
 
 pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("App Current_proposal");
@@ -166,8 +149,8 @@ pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("Has voted");
 
 pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("Proposal Vote by voter");
 
-pub const MAXPROPOSALCLAIMED: Map<(u64,Addr), u64> = Map::new("max proposal claimed");
+pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max proposal claimed");
 
-pub const COMPLETEDPROPOSALS: Map<u64,Vec<u64>>= Map::new("completed proposals");
+pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed proposals");
 
-pub const LOCKINGADDRESS: Map<u64,Vec<Addr>>= Map::new("locking addresses ");
+pub const LOCKINGADDRESS: Map<u64, Vec<Addr>> = Map::new("locking addresses ");
