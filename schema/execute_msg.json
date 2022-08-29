@@ -61,16 +61,16 @@
     {
       "type": "object",
       "required": [
-        "claim_bribe"
+        "claim_reward"
       ],
       "properties": {
-        "claim_bribe": {
+        "claim_reward": {
           "type": "object",
           "required": [
-            "proposal_id"
+            "app_id"
           ],
           "properties": {
-            "proposal_id": {
+            "app_id": {
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
@@ -139,31 +139,15 @@
         "rebase": {
           "type": "object",
           "required": [
+            "app_id",
             "proposal_id"
           ],
           "properties": {
-            "proposal_id": {
+            "app_id": {
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "required": [
-        "claim_rebase"
-      ],
-      "properties": {
-        "claim_rebase": {
-          "type": "object",
-          "required": [
-            "proposal_id"
-          ],
-          "properties": {
+            },
             "proposal_id": {
               "type": "integer",
               "format": "uint64",
@@ -209,15 +193,11 @@
         "withdraw": {
           "type": "object",
           "required": [
-            "denom",
-            "lockingperiod"
+            "denom"
           ],
           "properties": {
             "denom": {
               "type": "string"
-            },
-            "lockingperiod": {
-              "$ref": "#/definitions/LockingPeriod"
             }
           }
         }

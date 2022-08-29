@@ -19,7 +19,7 @@
     "foundation_addr": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/Addr"
+        "type": "string"
       }
     },
     "foundation_percentage": {

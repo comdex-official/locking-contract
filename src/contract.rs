@@ -1378,8 +1378,8 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             let mut state = STATE.load(deps.storage)?;
             state.t1=t1;
             state.t2=t2;
-            state.t2=t3;
-            state.t2=t4;
+            state.t3=t3;
+            state.t4=t4;
             STATE.save(deps.storage,&state)?;
             Ok(Response::new())
         }
