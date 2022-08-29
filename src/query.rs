@@ -106,7 +106,7 @@ pub fn query_vtoken_balance(
 
     let vtokens = vtokens.unwrap();
     let mut total_vtoken: u128 = 0;
-    for vtoken in vtokens.clone() {
+    for vtoken in vtokens {
         total_vtoken += vtoken.vtoken.amount.u128();
     }
 
@@ -232,16 +232,16 @@ pub fn query_withdrawable(
 ) -> StdResult<WithdrawableResponse> {
     let address = deps.api.addr_validate(&address)?;
 
-    let vtokens = VTOKENS.may_load(deps.storage, (address.clone(), &denom))?;
+    let vtokens = VTOKENS.may_load(deps.storage, (address, &denom))?;
 
-    if let None = vtokens {
+    if vtokens.is_none() {
         return Err(StdError::NotFound {
             kind: format!("No token found for {:?}", denom),
         });
     }
 
     let vtokens = vtokens.unwrap();
-
+    let denom_param=denom.to_owned();
     let withdraw_amount: u128 = vtokens
         .into_iter()
         .filter(|el| el.token.denom == denom && el.end_time < env.block.time)
@@ -249,7 +249,7 @@ pub fn query_withdrawable(
 
     Ok(WithdrawableResponse {
         amount: Coin {
-            denom: denom,
+            denom: denom_param,
             amount: Uint128::from(withdraw_amount),
         },
     })
@@ -272,9 +272,9 @@ pub fn query_bribe_eligible(
 
     let bribe_coins = calculate_bribe_reward_query(
         deps,
-        env.clone(),
+        env,
         max_proposal_claimed,
-        all_proposals.clone(),
+        all_proposals,
         address.borrow(),
         app_id,
     );
@@ -291,7 +291,7 @@ pub fn calculate_bribe_reward_query(
 ) -> Result<Vec<Coin>, ContractError> {
     //check if active proposal
     let mut bribe_coins: Vec<Coin> = vec![];
-    for proposalid in all_proposals.clone() {
+    for proposalid in all_proposals {
         if proposalid <= max_proposal_claimed {
             continue;
         }
@@ -327,7 +327,7 @@ pub fn calculate_bribe_reward_query(
         for bribr_deposited in claimable_bribe.clone() {
             match bribe_coins
                 .iter_mut()
-                .find(|ref p| bribr_deposited.denom == p.denom)
+                .find(| p| bribr_deposited.denom == p.denom)
             {
                 Some(pivot) => {
                     pivot.denom = bribr_deposited.denom;
