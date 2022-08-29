@@ -34,7 +34,8 @@
           "type": "object",
           "required": [
             "address",
-            "denom"
+            "denom",
+            "start_after"
           ],
           "properties": {
             "address": {
@@ -42,6 +43,19 @@
             },
             "denom": {
               "type": "string"
+            },
+            "limit": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "start_after": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
             }
           }
         }
@@ -141,11 +155,11 @@
         "bribe_by_proposal": {
           "type": "object",
           "required": [
-            "app_id",
+            "extended_pair_id",
             "proposal_id"
           ],
           "properties": {
-            "app_id": {
+            "extended_pair_id": {
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
@@ -229,6 +243,117 @@
               "$ref": "#/definitions/Addr"
             },
             "app_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Total amount of given denom withdrawable.",
+      "type": "object",
+      "required": [
+        "withdrawable"
+      ],
+      "properties": {
+        "withdrawable": {
+          "type": "object",
+          "required": [
+            "address",
+            "denom"
+          ],
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "denom": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "total_v_tokens"
+      ],
+      "properties": {
+        "total_v_tokens": {
+          "type": "object",
+          "required": [
+            "address",
+            "denom"
+          ],
+          "properties": {
+            "address": {
+              "$ref": "#/definitions/Addr"
+            },
+            "denom": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "emission"
+      ],
+      "properties": {
+        "emission": {
+          "type": "object",
+          "required": [
+            "app_id"
+          ],
+          "properties": {
+            "app_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "extended_pair_vote"
+      ],
+      "properties": {
+        "extended_pair_vote": {
+          "type": "object",
+          "required": [
+            "extended_pair_id",
+            "proposal_id"
+          ],
+          "properties": {
+            "extended_pair_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "proposal_id": {
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
