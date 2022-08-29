@@ -11,7 +11,7 @@ pub struct InstantiateMsg {
     pub t4: PeriodWeight,
     pub voting_period: u64,
     pub vesting_contract: Addr,
-    pub foundation_addr: Vec<Addr>,
+    pub foundation_addr: Vec<String>,
     pub foundation_percentage: Decimal,
     pub surplus_asset_id: u64,
     pub emission: Emission,
@@ -40,6 +40,7 @@ pub enum ExecuteMsg {
     },
     Rebase {
         proposal_id: u64,
+        app_id: u64,
     },
     Lock {
         app_id: u64,
@@ -47,7 +48,6 @@ pub enum ExecuteMsg {
     },
     Withdraw {
         denom: String,
-        lockingperiod: LockingPeriod,
     },
     Transfer {
         recipent: String,
@@ -71,6 +71,8 @@ pub enum QueryMsg {
     IssuedVtokens {
         address: Addr,
         denom: String,
+        start_after: u32,
+        limit: Option<u32>,
     },
     VestedTokens {
         denom: String,
@@ -87,7 +89,7 @@ pub enum QueryMsg {
     },
     BribeByProposal {
         proposal_id: u64,
-        app_id: u64,
+        extended_pair_id: u64,
     },
     HasVoted {
         address: Addr,
@@ -108,6 +110,27 @@ pub enum QueryMsg {
         address: String,
         denom: String,
     },
+    TotalVTokens {
+        address: Addr,
+        denom: String,
+    },
+    State {},
+    Emission {
+        app_id: u64,
+    },
+    ExtendedPairVote {
+        proposal_id: u64,
+        extended_pair_id: u64,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SudoMsg {
+    UpdateVestingContract { address: Addr },
+    UpdateEmissionRate{emission:Emission},
+    UpdateFoundationInfo{addresses: Vec<Addr>,foundation_percentage:Decimal},
+    UpdateLockingPeriod{t1:PeriodWeight,t2:PeriodWeight,t3:PeriodWeight,t4:PeriodWeight},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
