@@ -1,10 +1,11 @@
-
-use cosmwasm_std::{StdResult};
-use comdex_bindings::{ComdexQuery};
-use cosmwasm_std::{  Deps, Coin};
+use comdex_bindings::ComdexQuery;
 use comdex_bindings::{
-     GetAppResponse, GetAssetDataResponse,TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount,GetWhitelistedAssetResponse};
-use cosmwasm_std::{ QueryRequest};
+    GetAppResponse, GetAssetDataResponse, GetExtendedPairByAppResponse, GetSurplusRewardAmount,
+    GetWhitelistedAssetResponse, TotalSupplyResponse,
+};
+use cosmwasm_std::QueryRequest;
+use cosmwasm_std::StdResult;
+use cosmwasm_std::{Coin, Deps};
 
 pub fn query_app_exists(
     deps: Deps<ComdexQuery>,
@@ -66,38 +67,38 @@ pub fn query_extended_pair_by_app(
 ) -> StdResult<Vec<u64>> {
     let ext_pair_response =
         deps.querier
-            .query::<GetExtendedPairByAppResponse>(&QueryRequest::Custom(ComdexQuery::ExtendedPairByApp {
-                app_id: app_mapping_id_param,
-            }))?;
+            .query::<GetExtendedPairByAppResponse>(&QueryRequest::Custom(
+                ComdexQuery::ExtendedPairByApp {
+                    app_id: app_mapping_id_param,
+                },
+            ))?;
 
     Ok(ext_pair_response.ext_pair)
 }
 
-
 pub fn query_surplus_reward(
     deps: Deps<ComdexQuery>,
     app_mapping_id_param: u64,
-    asset_id:u64,
+    asset_id: u64,
 ) -> StdResult<Coin> {
-    let amount =
-        deps.querier
-            .query::<GetSurplusRewardAmount>(&QueryRequest::Custom(ComdexQuery::CheckSurplusReward {
+    let amount = deps
+        .querier
+        .query::<GetSurplusRewardAmount>(&QueryRequest::Custom(
+            ComdexQuery::CheckSurplusReward {
                 app_id: app_mapping_id_param,
-                asset_id
-            }))?;
+                asset_id,
+            },
+        ))?;
 
     Ok(amount.amount)
 }
 
-pub fn query_whitelisted_asset(
-    deps: Deps<ComdexQuery>,
-    asset_denom:String,
-) -> StdResult<bool> {
-    let response =
-        deps.querier
-            .query::<GetWhitelistedAssetResponse>(&QueryRequest::Custom(ComdexQuery::CheckWhitelistedAsset {
-                denom:asset_denom
-            }))?;
+pub fn query_whitelisted_asset(deps: Deps<ComdexQuery>, asset_denom: String) -> StdResult<bool> {
+    let response = deps
+        .querier
+        .query::<GetWhitelistedAssetResponse>(&QueryRequest::Custom(
+            ComdexQuery::CheckWhitelistedAsset { denom: asset_denom },
+        ))?;
 
     Ok(response.found)
 }

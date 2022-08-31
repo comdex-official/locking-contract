@@ -241,7 +241,7 @@ pub fn query_withdrawable(
     }
 
     let vtokens = vtokens.unwrap();
-    let denom_param=denom.to_owned();
+    let denom_param = denom.to_owned();
     let withdraw_amount: u128 = vtokens
         .into_iter()
         .filter(|el| el.token.denom == denom && el.end_time < env.block.time)
@@ -327,7 +327,7 @@ pub fn calculate_bribe_reward_query(
         for bribr_deposited in claimable_bribe.clone() {
             match bribe_coins
                 .iter_mut()
-                .find(| p| bribr_deposited.denom == p.denom)
+                .find(|p| bribr_deposited.denom == p.denom)
             {
                 Some(pivot) => {
                     pivot.denom = bribr_deposited.denom;
