@@ -1,8 +1,16 @@
 use cosmwasm_std::{Addr, Timestamp};
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use cw_storage_plus::{Item, Map};
+use cw_storage_plus::{Item, Map,SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+//use cw4::TOTAL_KEY;
+
+pub const VOTEPOWER: SnapshotMap<(&Addr,String), Uint128 > = SnapshotMap::new(
+    "voters_key",
+    "voters_checkpoints",
+    "voters_changelogs",
+    Strategy::EveryBlock,
+);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -88,6 +96,8 @@ pub struct TokenSupply {
 // Holds the internal state
 pub const STATE: Item<State> = Item::new("state");
 // Owner to NFT
+pub const ADMIN: Item<Addr> = Item::new("admin_address");
+
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
 pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");

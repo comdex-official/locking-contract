@@ -15,6 +15,7 @@ pub struct InstantiateMsg {
     pub foundation_percentage: Decimal,
     pub surplus_asset_id: u64,
     pub emission: Emission,
+    pub admin: Addr,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

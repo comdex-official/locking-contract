@@ -11,7 +11,7 @@ use crate::state::{
 use crate::state::{
     Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
     LOCKINGADDRESS, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL,
-    VOTERS_VOTE,
+    VOTERS_VOTE,ADMIN,VOTEPOWER
 };
 use comdex_bindings::{ComdexMessages, ComdexQuery};
 #[cfg(not(feature = "library"))]
@@ -53,6 +53,8 @@ pub fn instantiate(
     STATE.save(deps.storage, &state)?;
 
     EMISSION.save(deps.storage, msg.emission.app_id, &msg.emission)?;
+
+    ADMIN.save(deps.storage, &msg.admin)?;
 
     PROPOSALCOUNT.save(deps.storage, &0)?;
 
@@ -107,6 +109,16 @@ pub fn emission_foundation(
     info: MessageInfo,
     proposal_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    
+    let admin = ADMIN.load(deps.storage)?;
+    if info.sender!=admin
+    {
+        return Err(ContractError::CustomError {
+            val: "Unauthorized"
+                .to_string(),
+        });
+
+    }
     //check if active proposal
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
     // check emission already compluted and executed
@@ -789,10 +801,20 @@ pub fn calculate_bribe_reward(
 pub fn calculate_rebase_reward(
     mut deps: DepsMut<ComdexQuery>,
     env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     proposal_id: u64,
     app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    //// only admin can execute
+    let admin = ADMIN.load(deps.storage)?;
+    if info.sender!=admin
+    {
+        return Err(ContractError::CustomError {
+            val: "Unauthorized"
+                .to_string(),
+        });
+
+    }
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
 
     if proposal.rebase_completed {
@@ -951,6 +973,16 @@ pub fn emission(
     info: MessageInfo,
     proposal_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    //// Only admin can execute
+    let admin = ADMIN.load(deps.storage)?;
+    if info.sender!=admin
+    {
+        return Err(ContractError::CustomError {
+            val: "Unauthorized"
+                .to_string(),
+        });
+
+    }
     // do not accept  funds
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
@@ -1247,6 +1279,16 @@ pub fn raise_proposal(
     info: MessageInfo,
     app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    //// only admin can execute
+    let admin = ADMIN.load(deps.storage)?;
+    if info.sender!=admin
+    {
+        return Err(ContractError::CustomError {
+            val: "Unauthorized"
+                .to_string(),
+        });
+
+    }
     // do not accept  funds
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
@@ -1402,6 +1444,7 @@ mod tests {
                 emmission_rate: Decimal::new(Uint128::from(2 as u64)),
                 distributed_rewards: 123333,
             },
+            admin: Addr::unchecked("admin")
         }
     }
 
