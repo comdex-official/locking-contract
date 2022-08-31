@@ -930,29 +930,32 @@ pub fn calculate_surplus_reward(
     all_proposals: Vec<u64>,
     app_id: u64,
 ) -> Result<Coin, ContractError> {
-    let mut total_surplus_available: Coin = Coin {
-        amount: Uint128::from(0_u32),
-        denom: "null".to_string(),
-    };
+    let mut asset_denom=String::new();
+    let mut total_claimable:u128=0_u128;
     for proposalid in all_proposals {
+        
+
         if proposalid <= max_proposal_claimed {
             continue;
         }
         let proposal = PROPOSAL.load(deps.storage, proposalid)?;
-        total_surplus_available.amount += proposal.total_surplus.amount;
-        total_surplus_available.denom = proposal.total_surplus.denom;
-    }
+        if proposal.total_surplus.denom.eq("nodenom")
+        {
+            continue;
+        }
+        let proposal_surplus = proposal.total_surplus.amount;
+        asset_denom = proposal.total_surplus.denom;
+    
 
     let app_response = query_app_exists(deps, app_id)?;
     let gov_token_denom = query_get_asset_data(deps, app_response.gov_token_id)?;
-    let vtokens = VTOKENS.may_load(deps.storage, (info.sender, &gov_token_denom))?;
+
+    let vtokens = VTOKENS.may_load_at_height(deps.storage, (info.sender.clone(), &gov_token_denom),proposal.height)?;
     if vtokens.is_none() {
-        let claim_coin = Coin {
-            amount: Uint128::zero(),
-            denom: gov_token_denom,
-        };
-        return Ok(claim_coin);
+        continue;
+        //return Ok(claim_coin);
     }
+
     let supply = SUPPLY.load(deps.storage, &gov_token_denom)?;
     let total_locked: u128 = supply.vtoken;
     //// get rebase amount per period
@@ -962,10 +965,13 @@ pub fn calculate_surplus_reward(
         locked += vtoken.vtoken.amount.u128();
     }
     let mut share = locked.div(total_locked);
-    share *= total_surplus_available.amount.u128();
+    share *= proposal_surplus.u128();
+    total_claimable+=share;
+
+}
     let claim_coin = Coin {
-        amount: Uint128::from(share),
-        denom: total_surplus_available.denom,
+        amount: Uint128::from(total_claimable),
+        denom: asset_denom,
     };
 
     Ok(claim_coin)
@@ -987,7 +993,7 @@ pub fn emission(
         });
 
     }
-    // do not accept  funds
+    // do not accept funds
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
     }
@@ -1172,6 +1178,7 @@ pub fn vote_proposal(
 
     let extended_pairs = proposal.extended_pair.clone();
 
+    //// check if extended pair exists in proposal's extended pair
     match extended_pairs.binary_search(&extended_pair) {
         Ok(_) => (),
         Err(_) => {
@@ -1274,7 +1281,8 @@ pub fn vote_proposal(
 
     // update proposal
 
-    Ok(Response::new().add_attribute("method", "voted for proposal"))
+    Ok(Response::new().add_attribute("method", "voted for proposal")
+                      .add_attribute("voted on", extended_pair.to_string()))
 }
 
 pub fn raise_proposal(
@@ -1322,22 +1330,22 @@ pub fn raise_proposal(
     let app_id_param = app_id;
     //update proposal maps
     let proposal = Proposal {
-        app_id: app_id_param,
-        voting_start_time: env.block.time,
-        voting_end_time: env.block.time.plus_seconds(voting_period),
-        extended_pair: ext_pairs,
-        emission_completed: false,
-        rebase_completed: false,
-        emission_distributed: 0,
-        rebase_distributed: 0,
-        total_voted_weight: 0,
-        foundation_emission_completed: false,
-        foundation_distributed: 0,
+        app_id: app_id_param,//app_id for proposal
+        voting_start_time: env.block.time, // Current block timestamp
+        voting_end_time: env.block.time.plus_seconds(voting_period), // end voting timestamp
+        extended_pair: ext_pairs, // extended pairs for which voting is taking place
+        emission_completed: false, //initially set emission_completed as false
+        rebase_completed: false, //initially set rebase_completed as false
+        emission_distributed: 0, //emission distributed token as 0 
+        rebase_distributed: 0, //rebase distributed token as 0
+        total_voted_weight: 0, // total_weight of voted vtoken
+        foundation_emission_completed: false, // emission to foundation addresses as false
+        foundation_distributed: 0, // total distributed tokens as 0
         total_surplus: Coin {
             amount: Uint128::from(0_u32),
             denom: "nodenom".to_string(),
-        },
-        height: env.block.height,
+        }  ,// unintialized dummy token
+        height: env.block.height // current block height of token,
     };
     let mut current_proposal = PROPOSALCOUNT.load(deps.storage).unwrap_or(0);
     current_proposal += 1;
@@ -1345,7 +1353,7 @@ pub fn raise_proposal(
     APPCURRENTPROPOSAL.save(deps.storage, app_id, &current_proposal)?;
     PROPOSAL.save(deps.storage, current_proposal, &proposal)?;
     Ok(Response::new()
-        .add_attribute("method", "proposal_raise")
+        .add_attribute("method", "proposal_raised")
         .add_attribute("proposal_id", current_proposal.to_string()))
 }
 
