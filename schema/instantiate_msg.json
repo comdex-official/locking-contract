@@ -3,6 +3,7 @@
   "title": "InstantiateMsg",
   "type": "object",
   "required": [
+    "admin",
     "emission",
     "foundation_addr",
     "foundation_percentage",
@@ -15,6 +16,9 @@
     "voting_period"
   ],
   "properties": {
+    "admin": {
+      "$ref": "#/definitions/Addr"
+    },
     "emission": {
       "$ref": "#/definitions/Emission"
     },
