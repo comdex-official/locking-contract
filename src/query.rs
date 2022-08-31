@@ -399,7 +399,7 @@ mod tests {
                 status: Status::Locked,
             },
         ];
-        _ = VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data);
+        _ = VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data,env.block.height);
 
         // Query the withdrawable balance; should be 250
         // let res = query_withdrawable(deps.as_ref(), env.clone(), DENOM.to_string())

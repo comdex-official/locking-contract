@@ -102,7 +102,12 @@ pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
 pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");
 // Vtoken owned by an address for a specific denom
-pub const VTOKENS: Map<(Addr, &str), Vec<Vtoken>> = Map::new("Vtokens by owner");
+pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
+    "voters_key",
+    "voters_checkpoints",
+    "voters_changelogs",
+    Strategy::EveryBlock,
+);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Proposal {

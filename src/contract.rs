@@ -11,7 +11,7 @@ use crate::state::{
 use crate::state::{
     Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
     LOCKINGADDRESS, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL,
-    VOTERS_VOTE,ADMIN,VOTEPOWER
+    VOTERS_VOTE,ADMIN
 };
 use comdex_bindings::{ComdexMessages, ComdexQuery};
 #[cfg(not(feature = "library"))]
@@ -173,7 +173,7 @@ fn lock_funds(
 
     let new_vtoken = create_vtoken(
         deps.storage,
-        env,
+        env.clone(),
         locking_period,
         period,
         weight,
@@ -211,6 +211,7 @@ fn lock_funds(
     VTOKENS.update(
         deps.storage,
         (sender, &funds.denom),
+        env.block.height,
         |el| -> StdResult<Vec<Vtoken>> {
             // If value exists for given key, then push new vtoken else update
             match el {
@@ -417,9 +418,9 @@ pub fn handle_withdraw(
     }
     // Update VTOKENS
     if vtokens_denom.is_empty() {
-        VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
+        VTOKENS.remove(deps.storage, (info.sender.clone(), &denom),env.block.height)?;
     } else {
-        VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &vtokens_denom)?;
+        VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &vtokens_denom,env.block.height)?;
     };
 
     // Reduce the total supply
@@ -470,7 +471,7 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
 /// Handles the transfer of vtokens between users
 pub fn handle_transfer(
     deps: DepsMut<ComdexQuery>,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     recipient: String,
     locking_period: LockingPeriod,
@@ -515,12 +516,13 @@ pub fn handle_transfer(
             .collect();
 
         if sender_vtokens_remaining.is_empty() {
-            VTOKENS.remove(deps.storage, (info.sender.clone(), &denom));
+            VTOKENS.remove(deps.storage, (info.sender.clone(), &denom),env.block.height)?;
         } else {
             VTOKENS.save(
                 deps.storage,
                 (info.sender.clone(), &denom),
                 &sender_vtokens_remaining,
+                env.block.height
             )?;
         }
     }
@@ -543,6 +545,7 @@ pub fn handle_transfer(
             deps.storage,
             (recipient.clone(), &denom),
             &recipient_vtokens,
+            env.block.height
         )?;
     }
 
@@ -831,7 +834,8 @@ pub fn calculate_rebase_reward(
     let vtokenholders = LOCKINGADDRESS.load(deps.storage, app_id)?;
 
     for addr in vtokenholders.iter() {
-        let vtokens = match VTOKENS.may_load(deps.storage, (addr.to_owned(), &gov_token_denom))? {
+        //// get v-tokens at proposal height
+        let vtokens = match VTOKENS.may_load_at_height(deps.storage, (addr.to_owned(), &gov_token_denom),proposal.height)? {
             Some(val) => val,
             None => vec![],
         };
@@ -1179,7 +1183,7 @@ pub fn vote_proposal(
 
     //balance of owner for the for denom for voting
 
-    let vtokens = VTOKENS.may_load(deps.storage, (info.sender.clone(), &gov_token_denom))?;
+    let vtokens = VTOKENS.may_load_at_height(deps.storage, (info.sender.clone(), &gov_token_denom),proposal.height)?;
 
     if vtokens.is_none() {
         return Err(ContractError::CustomError {
