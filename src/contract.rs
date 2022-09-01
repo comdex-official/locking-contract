@@ -260,20 +260,20 @@ pub fn handle_lock_nft(
         }
     }
 
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
-    let gov_token_id = app_response.gov_token_id;
-    let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
-    if gov_token_denom.is_empty() || gov_token_id == 0 {
-        return Err(ContractError::CustomError {
-            val: "Gov token not found".to_string(),
-        });
-    }
+    // let app_response = query_app_exists(deps.as_ref(), app_id)?;
+    // let gov_token_id = app_response.gov_token_id;
+    // let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
+    // if gov_token_denom.is_empty() || gov_token_id == 0 {
+    //     return Err(ContractError::CustomError {
+    //         val: "Gov token not found".to_string(),
+    //     });
+    // }
 
-    if info.funds[0].denom != gov_token_denom {
-        return Err(ContractError::CustomError {
-            val: "Wrong Deposit token".to_string(),
-        });
-    }
+    // if info.funds[0].denom != gov_token_denom {
+    //     return Err(ContractError::CustomError {
+    //         val: "Wrong Deposit token".to_string(),
+    //     });
+    // }
 
     lock_funds(
         deps,
