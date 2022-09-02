@@ -248,20 +248,6 @@ pub fn handle_lock_nft(
     }
     
 
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
-    let gov_token_id = app_response.gov_token_id;
-    let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
-    if gov_token_denom.is_empty() || gov_token_id == 0 {
-        return Err(ContractError::CustomError {
-            val: "Gov token not found".to_string(),
-        });
-    }
-
-    if info.funds[0].denom != gov_token_denom {
-        return Err(ContractError::CustomError {
-            val: "Wrong Deposit token".to_string(),
-        });
-    }
 
     lock_funds(
         deps,
@@ -1827,13 +1813,19 @@ mod tests {
             app_id: 12,
             locking_period: LockingPeriod::T1,
         };
-
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap_err();
+        match _res {
+            ContractError::InsufficientFunds { .. } => {}
+            e => panic!("{:?}", e),
+        };
         let _owner = Addr::unchecked("owner");
         let _info = mock_info("owner", &coins(100, DENOM.to_string()));
-        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
-
-        let _res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
             .unwrap_err();
+            match res {
+                ContractError::NotFound { .. } => {}
+                e => panic!("{:?}", e),
+            };
     }
 
     #[test]
