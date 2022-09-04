@@ -39,7 +39,7 @@ pub fn instantiate(
         t2: msg.t2,
         t3: msg.t3,
         t4: msg.t4,
-        num_tokens: 0,
+        num_tokens: 0_u64,
         vesting_contract: msg.vesting_contract,
         foundation_addr: msg.foundation_addr,
         foundation_percentage: msg.foundation_percentage,
@@ -140,6 +140,11 @@ pub fn emission_foundation(
 
     let foundation_addr = state.foundation_addr;
 
+    if foundation_addr.is_empty() {
+        return Err(ContractError::CustomError {
+            val: "No foundation address found".to_string(),
+        });
+    }
     let foundation_emission = proposal.foundation_distributed;
 
     //// message to send tokens to foundation_address
@@ -260,20 +265,20 @@ pub fn handle_lock_nft(
         }
     }
 
-    // let app_response = query_app_exists(deps.as_ref(), app_id)?;
-    // let gov_token_id = app_response.gov_token_id;
-    // let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
-    // if gov_token_denom.is_empty() || gov_token_id == 0 {
-    //     return Err(ContractError::CustomError {
-    //         val: "Gov token not found".to_string(),
-    //     });
-    // }
+    let app_response = query_app_exists(deps.as_ref(), app_id)?;
+    let gov_token_id = app_response.gov_token_id;
+    let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
+    if gov_token_denom.is_empty() || gov_token_id == 0 {
+        return Err(ContractError::CustomError {
+            val: "Gov token not found".to_string(),
+        });
+    }
 
-    // if info.funds[0].denom != gov_token_denom {
-    //     return Err(ContractError::CustomError {
-    //         val: "Wrong Deposit token".to_string(),
-    //     });
-    // }
+    if info.funds[0].denom != gov_token_denom {
+        return Err(ContractError::CustomError {
+            val: "Wrong Deposit token".to_string(),
+        });
+    }
 
     lock_funds(
         deps,
@@ -305,6 +310,7 @@ fn create_vtoken(
 
     update_denom_supply(
         storage,
+        env.clone(),
         &funds.denom,
         amount.u128(),
         funds.amount.u128(),
@@ -328,6 +334,7 @@ fn create_vtoken(
 /// tokens locked.
 fn update_denom_supply(
     storage: &mut dyn Storage,
+    env:Env,
     denom: &str,
     vquantity: u128,
     quantity: u128,
@@ -364,7 +371,7 @@ fn update_denom_supply(
         denom_supply_struct.token -= quantity;
     }
 
-    SUPPLY.save(storage, denom, &denom_supply_struct)?;
+    SUPPLY.save(storage, denom, &denom_supply_struct,env.block.height)?;
 
     Ok(())
 }
@@ -424,7 +431,7 @@ pub fn handle_withdraw(
     };
 
     // Reduce the total supply
-    update_denom_supply(deps.storage, &denom, vwithdrawable, withdrawable, false)?;
+    update_denom_supply(deps.storage, env.clone(),&denom, vwithdrawable, withdrawable, false)?;
 
     // Update nft
     let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
@@ -832,6 +839,15 @@ pub fn calculate_rebase_reward(
     let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
 
     let vtokenholders = LOCKINGADDRESS.load(deps.storage, app_id)?;
+    if vtokenholders.is_empty()
+    {
+        return Err(ContractError::CustomError {
+            val: "No locked users to rebase"
+                .to_string(),
+        });
+
+    }
+
 
     for addr in vtokenholders.iter() {
         //// get v-tokens at proposal height
@@ -839,7 +855,12 @@ pub fn calculate_rebase_reward(
             Some(val) => val,
             None => vec![],
         };
-        let supply = SUPPLY.load(deps.storage, &gov_token_denom)?;
+        if vtokens.is_empty()
+    {
+        continue;
+
+    }
+        let supply = SUPPLY.may_load_at_height(deps.storage, &gov_token_denom,proposal.height)?.unwrap();
         let total_locked: u128 = supply.token;
         //// get rebase amount per period
         let mut locked_t1: u128 = 0;
@@ -860,11 +881,15 @@ pub fn calculate_rebase_reward(
 
         //// lock in t1
         let lock_amount_t1 = (locked_t1 / total_share) * (total_rebase_amount / total_locked);
-        let fund_t1 = Coin {
-            amount: Uint128::from(lock_amount_t1),
-            denom: gov_token_denom.clone(),
-        };
-        lock_funds(
+        
+
+        if lock_amount_t1!=0_u128{
+            let fund_t1 = Coin {
+                amount: Uint128::from(lock_amount_t1),
+                denom: gov_token_denom.clone(),
+            };
+        
+            lock_funds(
             deps.branch(),
             env.clone(),
             app_id,
@@ -872,8 +897,10 @@ pub fn calculate_rebase_reward(
             fund_t1,
             LockingPeriod::T1,
         )?;
-
+        }
         let lock_amount_t2 = (locked_t2 / total_share) * (total_rebase_amount / total_locked);
+        
+        if lock_amount_t2!=0_u128{
         let fund_t2 = Coin {
             amount: Uint128::from(lock_amount_t2),
             denom: gov_token_denom.clone(),
@@ -886,8 +913,9 @@ pub fn calculate_rebase_reward(
             fund_t2,
             LockingPeriod::T2,
         )?;
-
+    }
         let lock_amount_t3 = (locked_t3 / total_share) * (total_rebase_amount / total_locked);
+        if lock_amount_t3!=0_u128{
         let fund_t3 = Coin {
             amount: Uint128::from(lock_amount_t3),
             denom: gov_token_denom.clone(),
@@ -900,8 +928,9 @@ pub fn calculate_rebase_reward(
             fund_t3,
             LockingPeriod::T3,
         )?;
-
+    }
         let lock_amount_t4 = (locked_t4 / total_share) * (total_rebase_amount / total_locked);
+        if lock_amount_t4!=0_u128{
         let fund_t4 = Coin {
             amount: Uint128::from(lock_amount_t4),
             denom: gov_token_denom.clone(),
@@ -914,6 +943,7 @@ pub fn calculate_rebase_reward(
             fund_t4,
             LockingPeriod::T4,
         )?;
+    }
     }
 
     proposal.rebase_completed = true;
@@ -953,10 +983,10 @@ pub fn calculate_surplus_reward(
     let vtokens = VTOKENS.may_load_at_height(deps.storage, (info.sender.clone(), &gov_token_denom),proposal.height)?;
     if vtokens.is_none() {
         continue;
-        //return Ok(claim_coin);
+        
     }
 
-    let supply = SUPPLY.load(deps.storage, &gov_token_denom)?;
+    let supply = SUPPLY.may_load_at_height(deps.storage, &gov_token_denom,proposal.height)?.unwrap();
     let total_locked: u128 = supply.vtoken;
     //// get rebase amount per period
     let mut locked: u128 = 0;
@@ -999,13 +1029,14 @@ pub fn emission(
     }
 
     // check if already emission executed
-    //check if active proposal
+
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
     if proposal.emission_completed {
         return Err(ContractError::CustomError {
             val: "Emission already completed".to_string(),
         });
     }
+    //check if active proposal
     if proposal.voting_end_time > env.block.time {
         return Err(ContractError::CustomError {
             val: "Proposal Voting Period not ended to execute emission for the proposal"
@@ -1025,7 +1056,7 @@ pub fn emission(
     }
 
     //// GET TOTAL V-TOKEN SUPPLY
-    let vtokens = SUPPLY.load(deps.storage, &gov_token_denom)?;
+    let vtokens = SUPPLY.may_load_at_height(deps.storage, &gov_token_denom,proposal.height)?.unwrap();
     let total_v_token = vtokens.vtoken;
     /////query token TOTAL SUPPLY
     let total_weight = get_token_supply(deps.as_ref(), app_id, gov_token_id)?;
@@ -1082,10 +1113,9 @@ pub fn emission(
 
     //// UPDATE REBASE AMOUNT
     proposal.rebase_distributed = (reward_emision.mul(percentage_locked)).u128();
-    //proposal.rebase_completed=true;
     //// EMISSION Data Update
-    emission.rewards_pending -= effective_emission.u128();
-    emission.distributed_rewards += effective_emission.u128();
+    emission.rewards_pending -= reward_emision.u128();
+    emission.distributed_rewards += reward_emision.u128();
 
     let surplus = query_surplus_reward(deps.as_ref(), app_id, state.surplus_asset_id)?;
     proposal.total_surplus = surplus.clone();
@@ -1096,7 +1126,7 @@ pub fn emission(
 
     let emission_msg = ComdexMessages::MsgEmissionRewards {
         app_id: app_id_param,
-        amount: effective_emission,
+        amount: Uint128::from(proposal.emission_distributed),
         extended_pair: proposal.extended_pair,
         voting_ratio: votes,
     };
@@ -1310,6 +1340,15 @@ pub fn raise_proposal(
     ////get ext pairs vec from app
     let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
 
+    //// No proposal 
+    if ext_pairs.is_empty()
+    {
+        return Err(ContractError::CustomError {
+            val: "No extended pair to vote"
+                .to_string(),
+        });
+
+    }
     //check no proposal active for app
     let current_app_proposal = (APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?).unwrap_or(0);
 
@@ -1407,6 +1446,12 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             state.t3 = t3;
             state.t4 = t4;
             STATE.save(deps.storage, &state)?;
+            Ok(Response::new())
+        }
+        SudoMsg::UpdateAdmin {
+            admin,
+        } => {
+            ADMIN.save(deps.storage, &admin)?;
             Ok(Response::new())
         }
     }

@@ -145,6 +145,9 @@ pub enum SudoMsg {
         t3: PeriodWeight,
         t4: PeriodWeight,
     },
+    UpdateAdmin {
+        admin: Addr,
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

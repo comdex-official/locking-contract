@@ -100,7 +100,12 @@ pub const ADMIN: Item<Addr> = Item::new("admin_address");
 
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
-pub const SUPPLY: Map<&str, TokenSupply> = Map::new("supply");
+pub const SUPPLY: SnapshotMap<&str, TokenSupply> = SnapshotMap::new(
+    "supply_key",
+    "supply_checkpoints",
+    "supply_changelogs",
+    Strategy::EveryBlock,
+);
 // Vtoken owned by an address for a specific denom
 pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
     "voters_key",
