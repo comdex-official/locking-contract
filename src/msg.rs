@@ -1,5 +1,5 @@
 use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
-use cosmwasm_std::{Addr, Coin, Decimal};
+use cosmwasm_std::{Addr, Coin, Decimal,Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -177,3 +177,18 @@ pub struct LockedTokensResponse {
 pub struct IssuedVtokensResponse {
     pub vtokens: Vec<Vtoken>,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ProposalVoteRespons {
+    pub proposal_pair_data: Vec<ProposalPairVote>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ProposalPairVote {
+    pub extended_pair_id: u64,
+    pub my_vote: Uint128,
+    pub total_vote: Uint128,
+    pub bribe: Vec<Coin>,
+}
+
+

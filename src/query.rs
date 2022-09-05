@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
 use crate::error::ContractError;
-use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse};
+use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse,ProposalPairVote,ProposalVoteRespons};
 use crate::state::{
     Emission, Proposal, State, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
     COMPLETEDPROPOSALS, EMISSION, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, STATE, SUPPLY,
@@ -214,6 +214,38 @@ pub fn query_is_voted(
 ) -> StdResult<bool> {
     let supply = VOTERS_VOTE.may_load(deps.storage, (address, proposal_id))?;
     Ok(supply.unwrap_or(false))
+}
+
+pub fn query_proposal_all_up(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    address: Addr,
+    proposal_id: u64,
+) -> StdResult<ProposalVoteRespons> {
+    let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
+    let mut proposal_pair_data_allup:Vec<ProposalPairVote> =vec![];
+    for i in proposal.extended_pair
+    {
+        let extended_pair_total_vote=PROPOSALVOTE.load(deps.storage, (proposal_id,i)).unwrap_or(Uint128::zero());
+        let user_vote=match VOTERSPROPOSAL.may_load(deps.storage, (address.clone(),proposal_id))?
+        {
+            None => Uint128::zero(),
+            Some(vote) => { if vote.extended_pair==i { Uint128::from(vote.vote_weight)} else { Uint128::zero()}
+            }    
+        } ;
+        let bribe_param = BRIBES_BY_PROPOSAL.load(deps.storage, (proposal_id,i)).unwrap_or_default();
+
+        let proposal_pair_vote=ProposalPairVote{
+            extended_pair_id: i,
+            my_vote:user_vote,
+            total_vote:extended_pair_total_vote,
+            bribe: bribe_param,
+        };
+        proposal_pair_data_allup.push(proposal_pair_vote);
+
+    }
+
+    Ok(ProposalVoteRespons{proposal_pair_data:proposal_pair_data_allup})
 }
 
 pub fn query_vote(
