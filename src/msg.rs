@@ -15,6 +15,7 @@ pub struct InstantiateMsg {
     pub foundation_percentage: Decimal,
     pub surplus_asset_id: u64,
     pub emission: Emission,
+    pub admin: Addr,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -113,6 +114,7 @@ pub enum QueryMsg {
     TotalVTokens {
         address: Addr,
         denom: String,
+        height: Option<u64>
     },
     State {},
     Emission {
@@ -127,10 +129,25 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SudoMsg {
-    UpdateVestingContract { address: Addr },
-    UpdateEmissionRate{emission:Emission},
-    UpdateFoundationInfo{addresses: Vec<Addr>,foundation_percentage:Decimal},
-    UpdateLockingPeriod{t1:PeriodWeight,t2:PeriodWeight,t3:PeriodWeight,t4:PeriodWeight},
+    UpdateVestingContract {
+        address: Addr,
+    },
+    UpdateEmissionRate {
+        emission: Emission,
+    },
+    UpdateFoundationInfo {
+        addresses: Vec<Addr>,
+        foundation_percentage: Decimal,
+    },
+    UpdateLockingPeriod {
+        t1: PeriodWeight,
+        t2: PeriodWeight,
+        t3: PeriodWeight,
+        t4: PeriodWeight,
+    },
+    UpdateAdmin {
+        admin: Addr,
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

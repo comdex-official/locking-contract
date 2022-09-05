@@ -51,8 +51,8 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::Withdrawable { address, denom } => {
             to_binary(&query_withdrawable(deps, env, address, denom)?)
         }
-        QueryMsg::TotalVTokens { address, denom } => {
-            to_binary(&query_vtoken_balance(deps, env, address, denom)?)
+        QueryMsg::TotalVTokens { address, denom,height } => {
+            to_binary(&query_vtoken_balance(deps, env, address, denom,height)?)
         }
         QueryMsg::State {} => to_binary(&query_state(deps, env)?),
         QueryMsg::Emission { app_id } => to_binary(&query_emission(deps, env, app_id)?),
@@ -95,11 +95,13 @@ pub fn query_extendedpairvote(
 
 pub fn query_vtoken_balance(
     deps: Deps<ComdexQuery>,
-    _env: Env,
+    env: Env,
     address: Addr,
     denom: String,
+    height:Option<u64>,
 ) -> StdResult<Uint128> {
-    let vtokens = VTOKENS.may_load(deps.storage, (address, &denom))?;
+    let query_height=height.unwrap_or(env.block.height);
+    let vtokens = VTOKENS.may_load_at_height(deps.storage, (address, &denom),query_height)?;
     if vtokens.is_none() {
         return Ok(Uint128::zero());
     }
@@ -241,7 +243,7 @@ pub fn query_withdrawable(
     }
 
     let vtokens = vtokens.unwrap();
-    let denom_param=denom.to_owned();
+    let denom_param = denom.to_owned();
     let withdraw_amount: u128 = vtokens
         .into_iter()
         .filter(|el| el.token.denom == denom && el.end_time < env.block.time)
@@ -327,7 +329,7 @@ pub fn calculate_bribe_reward_query(
         for bribr_deposited in claimable_bribe.clone() {
             match bribe_coins
                 .iter_mut()
-                .find(| p| bribr_deposited.denom == p.denom)
+                .find(|p| bribr_deposited.denom == p.denom)
             {
                 Some(pivot) => {
                     pivot.denom = bribr_deposited.denom;
@@ -399,7 +401,7 @@ mod tests {
                 status: Status::Locked,
             },
         ];
-        _ = VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data);
+        _ = VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data,env.block.height);
 
         // Query the withdrawable balance; should be 250
         // let res = query_withdrawable(deps.as_ref(), env.clone(), DENOM.to_string())
