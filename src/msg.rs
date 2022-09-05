@@ -147,6 +147,9 @@ pub enum SudoMsg {
     },
     UpdateAdmin {
         admin: Addr,
+    },
+    UpdateVotingPeriod {
+        voting_period: u64,
     }
 }
 

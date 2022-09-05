@@ -1457,6 +1457,13 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             ADMIN.save(deps.storage, &admin)?;
             Ok(Response::new())
         }
+        SudoMsg::UpdateVotingPeriod { voting_period } => {
+            let mut state = STATE.load(deps.storage)?;
+            state.voting_period = voting_period;
+            STATE.save(deps.storage, &state)?;
+            Ok(Response::new())
+        }
+
     }
 }
 
