@@ -1407,6 +1407,7 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     if ver.version.as_str() > CONTRACT_VERSION {
         return Err(StdError::generic_err("Cannot upgrade from a newer version").into());
     }
+    
 
     // set the new version
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;

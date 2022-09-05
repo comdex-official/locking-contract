@@ -3,7 +3,6 @@ use cosmwasm_std::{Coin, Decimal, Uint128};
 use cw_storage_plus::{Item, Map,SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-//use cw4::TOTAL_KEY;
 
 pub const VOTEPOWER: SnapshotMap<(&Addr,String), Uint128 > = SnapshotMap::new(
     "voters_key",
@@ -101,14 +100,14 @@ pub const ADMIN: Item<Addr> = Item::new("admin_address");
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
 pub const SUPPLY: SnapshotMap<&str, TokenSupply> = SnapshotMap::new(
-    "supply_key",
+    "supply",
     "supply_checkpoints",
     "supply_changelogs",
     Strategy::EveryBlock,
 );
 // Vtoken owned by an address for a specific denom
 pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
-    "voters_key",
+    "Vtokens by owner",
     "voters_checkpoints",
     "voters_changelogs",
     Strategy::EveryBlock,
