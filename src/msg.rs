@@ -1,5 +1,5 @@
 use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
-use cosmwasm_std::{Addr, Coin, Decimal,Uint128};
+use cosmwasm_std::{Addr, Coin, Decimal,Uint128,};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -123,6 +123,10 @@ pub enum QueryMsg {
     ExtendedPairVote {
         proposal_id: u64,
         extended_pair_id: u64,
+    },
+    UserProposalAllUp {
+        proposal_id: u64,
+        address: Addr,
     },
 }
 

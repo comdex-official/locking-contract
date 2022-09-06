@@ -69,6 +69,10 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             address,
             proposal_id,
         } => to_binary(&query_is_voted(deps, env, address, proposal_id)?),
+        QueryMsg::UserProposalAllUp {
+            proposal_id,
+            address,
+        } => to_binary(&query_proposal_all_up(deps, env, address, proposal_id)?),
         _ => panic!("Not implemented"),
     }
 }
