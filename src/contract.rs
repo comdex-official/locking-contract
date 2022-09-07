@@ -265,6 +265,8 @@ pub fn handle_lock_nft(
         }
     }
 
+    LOCKINGADDRESS.save(deps.storage,app_id,&addresses)?;
+
     let app_response = query_app_exists(deps.as_ref(), app_id)?;
     let gov_token_id = app_response.gov_token_id;
     let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
@@ -716,7 +718,7 @@ pub fn claim_rewards(
         all_proposals.clone(),
         app_id,
     )?;
-
+    bribe_coins.sort_by_key(|element| element.denom.clone());
     if !bribe_coins.is_empty() {
         let bribe = BankMsg::Send {
             to_address: info.sender.to_string(),
@@ -771,13 +773,12 @@ pub fn calculate_bribe_reward(
             None => continue,
         };
 
-        let proposal1 = PROPOSAL.load(deps.storage, proposalid)?;
 
         let total_vote_weight = PROPOSALVOTE
-            .load(deps.storage, (proposal1.app_id, vote.extended_pair))?
+            .load(deps.storage, (proposalid, vote.extended_pair))?
             .u128();
         let total_bribe =
-            BRIBES_BY_PROPOSAL.load(deps.storage, (proposal1.app_id, vote.extended_pair))?;
+            BRIBES_BY_PROPOSAL.load(deps.storage, (proposalid, vote.extended_pair))?;
 
         let mut claimable_bribe: Vec<Coin> = vec![];
 
@@ -1098,7 +1099,7 @@ pub fn emission(
     let mut total_vote: Uint128 = Uint128::zero();
     for i in ext_pair {
         let vote = PROPOSALVOTE
-            .load(deps.storage, (app_id, i))
+            .load(deps.storage, (proposal_id, i))
             .unwrap_or_else(|_| Uint128::from(0_u32));
         votes.push(vote);
         total_vote += vote;

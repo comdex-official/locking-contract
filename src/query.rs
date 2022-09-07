@@ -337,16 +337,12 @@ pub fn calculate_bribe_reward_query(
             Some(val) => val,
             None => continue,
         };
-        let proposal1 = match PROPOSAL.may_load(deps.storage, proposalid)? {
-            Some(val) => val,
-            None => continue,
-        };
 
         let total_vote_weight = PROPOSALVOTE
-            .load(deps.storage, (proposal1.app_id, vote.extended_pair))?
+            .load(deps.storage, (proposalid, vote.extended_pair))?
             .u128();
         let total_bribe = match BRIBES_BY_PROPOSAL
-            .may_load(deps.storage, (proposal1.app_id, vote.extended_pair))?
+            .may_load(deps.storage, (proposalid ,vote.extended_pair))?
         {
             Some(val) => val,
             None => vec![],
