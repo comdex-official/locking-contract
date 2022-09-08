@@ -11,7 +11,7 @@ use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Deps, Env, StdError, StdResult, Uint128,Decimal
 };
-
+use std::ops::{Div,Mul};
 const MAX_LIMIT: u32 = 30;
 const DEFAULT_LIMIT: u32 = 10;
 
