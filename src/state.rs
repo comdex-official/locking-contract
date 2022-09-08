@@ -166,4 +166,3 @@ pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("Proposal Vote by vo
 pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max proposal claimed");
 
 pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed proposals");
-

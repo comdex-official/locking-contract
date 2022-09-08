@@ -10,8 +10,7 @@ use crate::state::{
 };
 use crate::state::{
     Proposal, Vote, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
-     MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL,
-    VOTERS_VOTE,
+    MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE,
 };
 
 use comdex_bindings::{ComdexMessages, ComdexQuery};
@@ -40,7 +39,7 @@ pub fn instantiate(
         .addr_validate(&msg.vesting_contract.clone().into_string())?;
     deps.api.addr_validate(&msg.admin.clone().into_string())?;
     map_validate(deps.api, &msg.foundation_addr)?;
-    query_app_exists(deps.as_ref(), msg.emission.app_id)?;
+    //query_app_exists(deps.as_ref(), msg.emission.app_id)?;
     let mut foundation_addr_unique = msg.foundation_addr.clone();
     foundation_addr_unique.dedup();
     let state = State {
@@ -277,21 +276,20 @@ pub fn handle_lock_nft(
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
 
+    // let app_response = query_app_exists(deps.as_ref(), app_id)?;
+    // let gov_token_id = app_response.gov_token_id;
+    // let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
+    // if gov_token_denom.is_empty() || gov_token_id == 0 {
+    //     return Err(ContractError::CustomError {
+    //         val: "Gov token not found".to_string(),
+    //     });
+    // }
 
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
-    let gov_token_id = app_response.gov_token_id;
-    let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
-    if gov_token_denom.is_empty() || gov_token_id == 0 {
-        return Err(ContractError::CustomError {
-            val: "Gov token not found".to_string(),
-        });
-    }
-
-    if info.funds[0].denom != gov_token_denom {
-        return Err(ContractError::CustomError {
-            val: "Wrong Deposit token".to_string(),
-        });
-    }
+    // if info.funds[0].denom != gov_token_denom {
+    //     return Err(ContractError::CustomError {
+    //         val: "Wrong Deposit token".to_string(),
+    //     });
+    // }
 
     lock_funds(
         deps,
@@ -738,7 +736,6 @@ pub fn claim_rewards(
         app_id,
     )?;
 
-    let mut back_messages: Vec<BankMsg> = vec![];
     let surplus_share = calculate_surplus_reward(
         deps.as_ref(),
         env,
@@ -756,18 +753,11 @@ pub fn claim_rewards(
                 }
             }
         }
+    } else if !surplus_share.amount.is_zero() {
+        bribe_coins = vec![surplus_share]
+    } else {
+        bribe_coins = vec![]
     }
-
-    else {
-        if !surplus_share.amount.is_zero() 
-        {
-            bribe_coins=vec![surplus_share]
-        }
-        else  {
-            bribe_coins=vec![]
-        }
-    }
-
 
     MAXPROPOSALCLAIMED.save(
         deps.storage,
@@ -823,7 +813,7 @@ pub fn calculate_bribe_reward(
                 .div(Decimal::new(Uint128::from(total_vote_weight))))
             .mul(coin.amount);
             let claimable_coin = Coin {
-                amount: Uint128::from(claimable_amount),
+                amount: claimable_amount,
                 denom: coin.denom,
             };
             claimable_bribe.push(claimable_coin);
@@ -856,8 +846,6 @@ pub fn calculate_rebase_reward(
     proposal_id: u64,
     app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
-
-    
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
     if !proposal.emission_completed {
         return Err(ContractError::CustomError {
@@ -899,7 +887,7 @@ pub fn calculate_rebase_reward(
     let mut locked_t3: u128 = 0;
     let mut locked_t4: u128 = 0;
 
-    for vtoken in vtokens.clone() {
+    for vtoken in vtokens {
         match vtoken.period {
             LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
             LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
@@ -914,14 +902,14 @@ pub fn calculate_rebase_reward(
     let lock_amount_t1 = (Decimal::new(Uint128::from(locked_t1))
         .div(Decimal::new(Uint128::from(total_share))))
     .mul(
-        (Decimal::new(Uint128::from(total_rebase_amount))
-            .div(Decimal::new(Uint128::from(total_locked)))),
+        Decimal::new(Uint128::from(total_rebase_amount))
+            .div(Decimal::new(Uint128::from(total_locked))),
     )
     .mul(Uint128::from(1_u128));
 
     if lock_amount_t1 != Uint128::zero() {
         let fund_t1 = Coin {
-            amount: Uint128::from(lock_amount_t1),
+            amount: lock_amount_t1,
             denom: gov_token_denom.clone(),
         };
 
@@ -937,14 +925,14 @@ pub fn calculate_rebase_reward(
     let lock_amount_t2 = (Decimal::new(Uint128::from(locked_t2))
         .div(Decimal::new(Uint128::from(total_share))))
     .mul(
-        (Decimal::new(Uint128::from(total_rebase_amount))
-            .div(Decimal::new(Uint128::from(total_locked)))),
+        Decimal::new(Uint128::from(total_rebase_amount))
+            .div(Decimal::new(Uint128::from(total_locked))),
     )
     .mul(Uint128::from(1_u128));
 
     if lock_amount_t2 != Uint128::zero() {
         let fund_t2 = Coin {
-            amount: Uint128::from(lock_amount_t2),
+            amount: lock_amount_t2,
             denom: gov_token_denom.clone(),
         };
         lock_funds(
@@ -959,14 +947,14 @@ pub fn calculate_rebase_reward(
     let lock_amount_t3 = (Decimal::new(Uint128::from(locked_t3))
         .div(Decimal::new(Uint128::from(total_share))))
     .mul(
-        (Decimal::new(Uint128::from(total_rebase_amount))
-            .div(Decimal::new(Uint128::from(total_locked)))),
+        Decimal::new(Uint128::from(total_rebase_amount))
+            .div(Decimal::new(Uint128::from(total_locked))),
     )
     .mul(Uint128::from(1_u128));
 
     if lock_amount_t3 != Uint128::zero() {
         let fund_t3 = Coin {
-            amount: Uint128::from(lock_amount_t3),
+            amount: lock_amount_t3,
             denom: gov_token_denom.clone(),
         };
         lock_funds(
@@ -981,21 +969,21 @@ pub fn calculate_rebase_reward(
     let lock_amount_t4 = (Decimal::new(Uint128::from(locked_t4))
         .div(Decimal::new(Uint128::from(total_share))))
     .mul(
-        (Decimal::new(Uint128::from(total_rebase_amount))
-            .div(Decimal::new(Uint128::from(total_locked)))),
+        Decimal::new(Uint128::from(total_rebase_amount))
+            .div(Decimal::new(Uint128::from(total_locked))),
     )
     .mul(Uint128::from(1_u128));
 
     if lock_amount_t4 != Uint128::zero() {
         let fund_t4 = Coin {
-            amount: Uint128::from(lock_amount_t4),
-            denom: gov_token_denom.clone(),
+            amount: lock_amount_t4,
+            denom: gov_token_denom,
         };
         lock_funds(
             deps.branch(),
-            env.clone(),
+            env,
             app_id,
-            info.sender.clone(),
+            info.sender,
             fund_t4,
             LockingPeriod::T4,
         )?;
@@ -1474,7 +1462,7 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
     match msg {
         SudoMsg::UpdateVestingContract { address } => {
             let mut state = STATE.load(deps.storage)?;
-            state.vesting_contract = deps.api.addr_validate(&address.clone().into_string())?;
+            state.vesting_contract = deps.api.addr_validate(&address.into_string())?;
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
@@ -1561,9 +1549,9 @@ mod tests {
             emission: Emission {
                 app_id: 1,
                 total_rewards: 200000,
-                rewards_pending: 200000,
-                emission_rate: Decimal::new(Uint128::from(2 as u64)),
-                distributed_rewards: 123333,
+                rewards_pending: 0,
+                emission_rate: Decimal::percent(2),
+                distributed_rewards: 0,
             },
             admin: Addr::unchecked("admin"),
         }

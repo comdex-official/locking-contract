@@ -371,7 +371,7 @@ pub fn calculate_bribe_reward_query(
                 .div(Decimal::new(Uint128::from(total_vote_weight))))
             .mul(coin.amount);
             let claimable_coin = Coin {
-                amount: Uint128::from(claimable_amount),
+                amount: claimable_amount,
                 denom: coin.denom,
             };
             claimable_bribe.push(claimable_coin);
