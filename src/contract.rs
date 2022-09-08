@@ -9,18 +9,20 @@ use crate::state::{
     TOKENS, VTOKENS,
 };
 use crate::state::{
-    Proposal, Vote, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
-    LOCKINGADDRESS, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL,
-    VOTERS_VOTE,ADMIN
+    Proposal, Vote, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
+     MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL,
+    VOTERS_VOTE,
 };
+
 use comdex_bindings::{ComdexMessages, ComdexQuery};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{Api,
-    to_binary, Addr, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
+use cosmwasm_std::{
+    to_binary, Addr, Api, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
     Response, StdError, StdResult, Storage, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
+use cw_utils::may_pay;
 use std::ops::{Div, Mul};
 
 // version info for migration info
@@ -34,12 +36,12 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-  
-    deps.api.addr_validate(&msg.vesting_contract.clone().into_string())?;
+    deps.api
+        .addr_validate(&msg.vesting_contract.clone().into_string())?;
     deps.api.addr_validate(&msg.admin.clone().into_string())?;
     map_validate(deps.api, &msg.foundation_addr)?;
     query_app_exists(deps.as_ref(), msg.emission.app_id)?;
-    let mut foundation_addr_unique=msg.foundation_addr.clone();
+    let mut foundation_addr_unique = msg.foundation_addr.clone();
     foundation_addr_unique.dedup();
     let state = State {
         t1: msg.t1,
@@ -48,45 +50,32 @@ pub fn instantiate(
         t4: msg.t4,
         num_tokens: 0_u64,
         vesting_contract: msg.vesting_contract,
-        foundation_addr: foundation_addr_unique ,
+        foundation_addr: foundation_addr_unique,
         foundation_percentage: msg.foundation_percentage,
         surplus_asset_id: msg.surplus_asset_id,
         voting_period: msg.voting_period,
     };
 
-
-    if msg.foundation_percentage > Decimal::one()
-    {
+    if msg.foundation_percentage > Decimal::one() {
         return Err(ContractError::CustomError {
-            val: "Foundation Emission percentage cannot be greater than 100 %"
-                .to_string(),
+            val: "Foundation Emission percentage cannot be greater than 100 %".to_string(),
         });
-
     }
-    if msg.emission.rewards_pending!=0
-    {
+    if msg.emission.rewards_pending != 0 {
         return Err(ContractError::CustomError {
-            val: "Pending rewards should be zero %"
-                .to_string(),
+            val: "Pending rewards should be zero %".to_string(),
         });
-
     }
-    if msg.emission.distributed_rewards !=0
-    {
+    if msg.emission.distributed_rewards != 0 {
         return Err(ContractError::CustomError {
-            val: "Distributed rewards should be zero"
-                .to_string(),
+            val: "Distributed rewards should be zero".to_string(),
         });
-
     }
 
-    if msg.emission.emmission_rate>Decimal::one()
-    {
+    if msg.emission.emission_rate > Decimal::one() {
         return Err(ContractError::CustomError {
-            val: "Emission rate cannot be greater one"
-                .to_string(),
+            val: "Emission rate cannot be greater one".to_string(),
         });
-
     }
     //// Set Contract version
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -95,9 +84,8 @@ pub fn instantiate(
 
     EMISSION.save(deps.storage, msg.emission.app_id, &msg.emission)?;
 
-    ADMIN.save(deps.storage, &msg.admin)?;
-
     PROPOSALCOUNT.save(deps.storage, &0)?;
+    ADMIN.set(deps, Some(msg.admin))?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -127,17 +115,17 @@ pub fn execute(
             extended_pair,
         } => bribe_proposal(deps, env, info, proposal_id, extended_pair),
         ExecuteMsg::ClaimReward { app_id } => claim_rewards(deps, env, info, app_id),
-        ExecuteMsg::Emmission { proposal_id } => emission(deps, env, info, proposal_id),
+        ExecuteMsg::Emission { proposal_id } => emission(deps, env, info, proposal_id),
         ExecuteMsg::Lock {
             app_id,
             locking_period,
         } => handle_lock_nft(deps, env, info, app_id, locking_period),
         ExecuteMsg::Withdraw { denom } => handle_withdraw(deps, env, info, denom),
         ExecuteMsg::Transfer {
-            recipent,
+            recipient,
             locking_period,
             denom,
-        } => handle_transfer(deps, env, info, recipent, locking_period, denom),
+        } => handle_transfer(deps, env, info, recipient, locking_period, denom),
         ExecuteMsg::FoundationRewards { proposal_id } => {
             emission_foundation(deps, env, info, proposal_id)
         }
@@ -154,22 +142,13 @@ pub fn emission_foundation(
     info: MessageInfo,
     proposal_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
-    
-    let admin = ADMIN.load(deps.storage)?;
-    if info.sender!=admin
-    {
-        return Err(ContractError::CustomError {
-            val: "Unauthorized"
-                .to_string(),
-        });
-
-    }
+    ADMIN.assert_admin(deps.as_ref(), &info.sender)?;
     //check if active proposal
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
     // check emission already compluted and executed
     if !proposal.emission_completed {
         return Err(ContractError::CustomError {
-            val: "Emission caluclation did not take place to initiate foundation calculation"
+            val: "Emission calculation did not take place to initiate foundation calculation"
                 .to_string(),
         });
     }
@@ -298,19 +277,6 @@ pub fn handle_lock_nft(
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
 
-    let mut addresses = match LOCKINGADDRESS.may_load(deps.storage, app_id)? {
-        Some(val) => val,
-        None => vec![],
-    };
-
-    match addresses.contains(&info.sender) {
-        true => (),
-        false => {
-            addresses.push(info.sender.clone());
-        }
-    }
-
-    LOCKINGADDRESS.save(deps.storage,app_id,&addresses)?;
 
     let app_response = query_app_exists(deps.as_ref(), app_id)?;
     let gov_token_id = app_response.gov_token_id;
@@ -326,8 +292,6 @@ pub fn handle_lock_nft(
             val: "Wrong Deposit token".to_string(),
         });
     }
-
-
 
     lock_funds(
         deps,
@@ -383,7 +347,7 @@ fn create_vtoken(
 /// tokens locked.
 fn update_denom_supply(
     storage: &mut dyn Storage,
-    env:Env,
+    env: Env,
     denom: &str,
     vquantity: u128,
     quantity: u128,
@@ -420,7 +384,7 @@ fn update_denom_supply(
         denom_supply_struct.token -= quantity;
     }
 
-    SUPPLY.save(storage, denom, &denom_supply_struct,env.block.height)?;
+    SUPPLY.save(storage, denom, &denom_supply_struct, env.block.height)?;
 
     Ok(())
 }
@@ -474,13 +438,29 @@ pub fn handle_withdraw(
     }
     // Update VTOKENS
     if vtokens_denom.is_empty() {
-        VTOKENS.remove(deps.storage, (info.sender.clone(), &denom),env.block.height)?;
+        VTOKENS.remove(
+            deps.storage,
+            (info.sender.clone(), &denom),
+            env.block.height,
+        )?;
     } else {
-        VTOKENS.save(deps.storage, (info.sender.clone(), &denom), &vtokens_denom,env.block.height)?;
+        VTOKENS.save(
+            deps.storage,
+            (info.sender.clone(), &denom),
+            &vtokens_denom,
+            env.block.height,
+        )?;
     };
 
     // Reduce the total supply
-    update_denom_supply(deps.storage, env.clone(),&denom, vwithdrawable, withdrawable, false)?;
+    update_denom_supply(
+        deps.storage,
+        env.clone(),
+        &denom,
+        vwithdrawable,
+        withdrawable,
+        false,
+    )?;
 
     // Update nft
     let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
@@ -572,13 +552,17 @@ pub fn handle_transfer(
             .collect();
 
         if sender_vtokens_remaining.is_empty() {
-            VTOKENS.remove(deps.storage, (info.sender.clone(), &denom),env.block.height)?;
+            VTOKENS.remove(
+                deps.storage,
+                (info.sender.clone(), &denom),
+                env.block.height,
+            )?;
         } else {
             VTOKENS.save(
                 deps.storage,
                 (info.sender.clone(), &denom),
                 &sender_vtokens_remaining,
-                env.block.height
+                env.block.height,
             )?;
         }
     }
@@ -601,7 +585,7 @@ pub fn handle_transfer(
             deps.storage,
             (recipient.clone(), &denom),
             &recipient_vtokens,
-            env.block.height
+            env.block.height,
         )?;
     }
 
@@ -765,20 +749,25 @@ pub fn claim_rewards(
     )?;
     bribe_coins.sort_by_key(|element| element.denom.clone());
     if !bribe_coins.is_empty() {
-        let bribe = BankMsg::Send {
-            to_address: info.sender.to_string(),
-            amount: bribe_coins.clone(),
-        };
-        back_messages.push(bribe);
-    }
-
-    if !surplus_share.amount.is_zero() {
-        for coin1 in bribe_coins.iter_mut() {
-            if surplus_share.denom == coin1.denom {
-                coin1.amount += surplus_share.amount;
+        if !surplus_share.amount.is_zero() {
+            for coin1 in bribe_coins.iter_mut() {
+                if surplus_share.denom == coin1.denom {
+                    coin1.amount += surplus_share.amount;
+                }
             }
         }
     }
+
+    else {
+        if !surplus_share.amount.is_zero() 
+        {
+            bribe_coins=vec![surplus_share]
+        }
+        else  {
+            bribe_coins=vec![]
+        }
+    }
+
 
     MAXPROPOSALCLAIMED.save(
         deps.storage,
@@ -786,7 +775,7 @@ pub fn claim_rewards(
         all_proposals.last().unwrap(),
     )?;
 
-    if !back_messages.is_empty() {
+    if !bribe_coins.is_empty() {
         Ok(Response::new()
             .add_attribute("method", "Bribe Claimed")
             .add_message(BankMsg::Send {
@@ -818,22 +807,21 @@ pub fn calculate_bribe_reward(
             None => continue,
         };
 
-
         let total_vote_weight = PROPOSALVOTE
             .load(deps.storage, (proposalid, vote.extended_pair))?
             .u128();
-        let total_bribe = match 
-            BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposalid, vote.extended_pair))?
-            {
+        let total_bribe =
+            match BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposalid, vote.extended_pair))? {
                 Some(val) => val,
                 None => vec![],
             };
-    
 
         let mut claimable_bribe: Vec<Coin> = vec![];
 
         for coin in total_bribe.clone() {
-            let claimable_amount = (Decimal::new(Uint128::from(vote.vote_weight)).div(Decimal::new(Uint128::from(total_vote_weight))) ).mul( coin.amount) ;
+            let claimable_amount = (Decimal::new(Uint128::from(vote.vote_weight))
+                .div(Decimal::new(Uint128::from(total_vote_weight))))
+            .mul(coin.amount);
             let claimable_coin = Coin {
                 amount: Uint128::from(claimable_amount),
                 denom: coin.denom,
@@ -868,18 +856,14 @@ pub fn calculate_rebase_reward(
     proposal_id: u64,
     app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
-    //// only admin can execute
-    let admin = ADMIN.load(deps.storage)?;
-    if info.sender!=admin
-    {
-        return Err(ContractError::CustomError {
-            val: "Unauthorized"
-                .to_string(),
-        });
 
-    }
+    
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
-
+    if !proposal.emission_completed {
+        return Err(ContractError::CustomError {
+            val: "Emission for proposal not completed".to_string(),
+        });
+    }
     if proposal.rebase_completed {
         return Err(ContractError::CustomError {
             val: String::from("Rebase already completed"),
@@ -891,69 +875,74 @@ pub fn calculate_rebase_reward(
 
     let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
 
-    let vtokenholders = LOCKINGADDRESS.load(deps.storage, app_id)?;
-    if vtokenholders.is_empty()
-    {
+    //// get v-tokens at proposal height
+    let vtokens = match VTOKENS.may_load_at_height(
+        deps.storage,
+        (info.sender.clone(), &gov_token_denom),
+        proposal.height,
+    )? {
+        Some(val) => val,
+        None => vec![],
+    };
+    if vtokens.is_empty() {
         return Err(ContractError::CustomError {
-            val: "No locked users to rebase"
-                .to_string(),
+            val: "No locked tokens for users to claim rebase".to_string(),
         });
-
     }
+    let supply = SUPPLY
+        .may_load_at_height(deps.storage, &gov_token_denom, proposal.height)?
+        .unwrap();
+    let total_locked: u128 = supply.token;
+    //// get rebase amount per period
+    let mut locked_t1: u128 = 0;
+    let mut locked_t2: u128 = 0;
+    let mut locked_t3: u128 = 0;
+    let mut locked_t4: u128 = 0;
 
-
-    for addr in vtokenholders.iter() {
-        //// get v-tokens at proposal height
-        let vtokens = match VTOKENS.may_load_at_height(deps.storage, (addr.to_owned(), &gov_token_denom),proposal.height)? {
-            Some(val) => val,
-            None => vec![],
-        };
-        if vtokens.is_empty()
-    {
-        continue;
-
-    }
-        let supply = SUPPLY.may_load_at_height(deps.storage, &gov_token_denom,proposal.height)?.unwrap();
-        let total_locked: u128 = supply.token;
-        //// get rebase amount per period
-        let mut locked_t1: u128 = 0;
-        let mut locked_t2: u128 = 0;
-        let mut locked_t3: u128 = 0;
-        let mut locked_t4: u128 = 0;
-
-        for vtoken in vtokens.clone() {
-            match vtoken.period {
-                LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
-                LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
-                LockingPeriod::T3 => locked_t3 += vtoken.token.amount.u128(),
-                LockingPeriod::T4 => locked_t4 += vtoken.token.amount.u128(),
-            }
+    for vtoken in vtokens.clone() {
+        match vtoken.period {
+            LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
+            LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
+            LockingPeriod::T3 => locked_t3 += vtoken.token.amount.u128(),
+            LockingPeriod::T4 => locked_t4 += vtoken.token.amount.u128(),
         }
+    }
 
-        let total_share = locked_t1 + locked_t2 + locked_t3 + locked_t4;
+    let total_share = locked_t1 + locked_t2 + locked_t3 + locked_t4;
 
-        //// lock in t1
-        let lock_amount_t1 = (Decimal::new(Uint128::from(locked_t1)).div (Decimal::new(Uint128::from(total_share)))).mul((Decimal::new(Uint128::from(total_rebase_amount)).div(Decimal::new(Uint128::from(total_locked))))).mul(Uint128::from(1_u128));
-        
+    //// lock in t1
+    let lock_amount_t1 = (Decimal::new(Uint128::from(locked_t1))
+        .div(Decimal::new(Uint128::from(total_share))))
+    .mul(
+        (Decimal::new(Uint128::from(total_rebase_amount))
+            .div(Decimal::new(Uint128::from(total_locked)))),
+    )
+    .mul(Uint128::from(1_u128));
 
-        if lock_amount_t1!=Uint128::zero(){
-            let fund_t1 = Coin {
-                amount: Uint128::from(lock_amount_t1),
-                denom: gov_token_denom.clone(),
-            };
-        
-            lock_funds(
+    if lock_amount_t1 != Uint128::zero() {
+        let fund_t1 = Coin {
+            amount: Uint128::from(lock_amount_t1),
+            denom: gov_token_denom.clone(),
+        };
+
+        lock_funds(
             deps.branch(),
             env.clone(),
             app_id,
-            addr.clone(),
+            info.sender.clone(),
             fund_t1,
             LockingPeriod::T1,
         )?;
-        }
-        let lock_amount_t2 = (Decimal::new(Uint128::from(locked_t2)).div (Decimal::new(Uint128::from(total_share)))).mul((Decimal::new(Uint128::from(total_rebase_amount)).div(Decimal::new(Uint128::from(total_locked))))).mul(Uint128::from(1_u128));
-        
-        if lock_amount_t2!=Uint128::zero(){
+    }
+    let lock_amount_t2 = (Decimal::new(Uint128::from(locked_t2))
+        .div(Decimal::new(Uint128::from(total_share))))
+    .mul(
+        (Decimal::new(Uint128::from(total_rebase_amount))
+            .div(Decimal::new(Uint128::from(total_locked)))),
+    )
+    .mul(Uint128::from(1_u128));
+
+    if lock_amount_t2 != Uint128::zero() {
         let fund_t2 = Coin {
             amount: Uint128::from(lock_amount_t2),
             denom: gov_token_denom.clone(),
@@ -962,14 +951,20 @@ pub fn calculate_rebase_reward(
             deps.branch(),
             env.clone(),
             app_id,
-            addr.clone(),
+            info.sender.clone(),
             fund_t2,
             LockingPeriod::T2,
         )?;
     }
-        let lock_amount_t3 = (Decimal::new(Uint128::from(locked_t3)).div (Decimal::new(Uint128::from(total_share)))).mul((Decimal::new(Uint128::from(total_rebase_amount)).div(Decimal::new(Uint128::from(total_locked))))).mul(Uint128::from(1_u128));
-        
-        if lock_amount_t3!=Uint128::zero(){
+    let lock_amount_t3 = (Decimal::new(Uint128::from(locked_t3))
+        .div(Decimal::new(Uint128::from(total_share))))
+    .mul(
+        (Decimal::new(Uint128::from(total_rebase_amount))
+            .div(Decimal::new(Uint128::from(total_locked)))),
+    )
+    .mul(Uint128::from(1_u128));
+
+    if lock_amount_t3 != Uint128::zero() {
         let fund_t3 = Coin {
             amount: Uint128::from(lock_amount_t3),
             denom: gov_token_denom.clone(),
@@ -978,14 +973,20 @@ pub fn calculate_rebase_reward(
             deps.branch(),
             env.clone(),
             app_id,
-            addr.clone(),
+            info.sender.clone(),
             fund_t3,
             LockingPeriod::T3,
         )?;
     }
-        let lock_amount_t4 = (Decimal::new(Uint128::from(locked_t4)).div (Decimal::new(Uint128::from(total_share)))).mul((Decimal::new(Uint128::from(total_rebase_amount)).div(Decimal::new(Uint128::from(total_locked))))).mul(Uint128::from(1_u128));
-        
-        if lock_amount_t4!=Uint128::zero(){
+    let lock_amount_t4 = (Decimal::new(Uint128::from(locked_t4))
+        .div(Decimal::new(Uint128::from(total_share))))
+    .mul(
+        (Decimal::new(Uint128::from(total_rebase_amount))
+            .div(Decimal::new(Uint128::from(total_locked)))),
+    )
+    .mul(Uint128::from(1_u128));
+
+    if lock_amount_t4 != Uint128::zero() {
         let fund_t4 = Coin {
             amount: Uint128::from(lock_amount_t4),
             denom: gov_token_denom.clone(),
@@ -994,11 +995,10 @@ pub fn calculate_rebase_reward(
             deps.branch(),
             env.clone(),
             app_id,
-            addr.clone(),
+            info.sender.clone(),
             fund_t4,
             LockingPeriod::T4,
         )?;
-    }
     }
 
     proposal.rebase_completed = true;
@@ -1015,45 +1015,48 @@ pub fn calculate_surplus_reward(
     all_proposals: Vec<u64>,
     app_id: u64,
 ) -> Result<Coin, ContractError> {
-    let mut asset_denom=String::new();
-    let mut total_claimable:u128=0_u128;
+    let mut asset_denom = String::new();
+    let mut total_claimable: u128 = 0_u128;
     for proposalid in all_proposals {
-        
-
         if proposalid <= max_proposal_claimed {
             continue;
         }
         let proposal = PROPOSAL.load(deps.storage, proposalid)?;
-        if proposal.total_surplus.denom.eq("nodenom")
-        {
+        if proposal.total_surplus.denom.eq("nodenom") {
             continue;
         }
         let proposal_surplus = proposal.total_surplus.amount;
         asset_denom = proposal.total_surplus.denom;
-    
 
-    let app_response = query_app_exists(deps, app_id)?;
-    let gov_token_denom = query_get_asset_data(deps, app_response.gov_token_id)?;
+        let app_response = query_app_exists(deps, app_id)?;
+        let gov_token_denom = query_get_asset_data(deps, app_response.gov_token_id)?;
 
-    let vtokens = VTOKENS.may_load_at_height(deps.storage, (info.sender.clone(), &gov_token_denom),proposal.height)?;
-    if vtokens.is_none() {
-        continue;
-        
+        let vtokens = VTOKENS.may_load_at_height(
+            deps.storage,
+            (info.sender.clone(), &gov_token_denom),
+            proposal.height,
+        )?;
+        if vtokens.is_none() {
+            continue;
+        }
+
+        let supply = SUPPLY
+            .may_load_at_height(deps.storage, &gov_token_denom, proposal.height)?
+            .unwrap();
+        let total_locked: u128 = supply.vtoken;
+        //// get rebase amount per period
+        let mut locked: u128 = 0;
+        let vtokens = vtokens.unwrap();
+        for vtoken in vtokens {
+            locked += vtoken.vtoken.amount.u128();
+        }
+        let mut share = Decimal::new(Uint128::from(locked))
+            .div(Decimal::new(Uint128::from(total_locked)))
+            .mul(Uint128::from(1_u8))
+            .u128();
+        share *= proposal_surplus.u128();
+        total_claimable += share;
     }
-
-    let supply = SUPPLY.may_load_at_height(deps.storage, &gov_token_denom,proposal.height)?.unwrap();
-    let total_locked: u128 = supply.vtoken;
-    //// get rebase amount per period
-    let mut locked: u128 = 0;
-    let vtokens = vtokens.unwrap();
-    for vtoken in vtokens {
-        locked += vtoken.vtoken.amount.u128();
-    }
-    let mut share = Decimal::new(Uint128::from( locked)).div(Decimal::new(Uint128::from(total_locked))).mul(Uint128::from(1_u8)).u128();
-    share *= proposal_surplus.u128();
-    total_claimable+=share;
-
-}
     let claim_coin = Coin {
         amount: Uint128::from(total_claimable),
         denom: asset_denom,
@@ -1069,15 +1072,8 @@ pub fn emission(
     proposal_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //// Only admin can execute
-    let admin = ADMIN.load(deps.storage)?;
-    if info.sender!=admin
-    {
-        return Err(ContractError::CustomError {
-            val: "Unauthorized"
-                .to_string(),
-        });
+    ADMIN.assert_admin(deps.as_ref(), &info.sender)?;
 
-    }
     // do not accept funds
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
@@ -1111,7 +1107,9 @@ pub fn emission(
     }
 
     //// GET TOTAL V-TOKEN SUPPLY
-    let vtokens = SUPPLY.may_load_at_height(deps.storage, &gov_token_denom,proposal.height)?.unwrap();
+    let vtokens = SUPPLY
+        .may_load_at_height(deps.storage, &gov_token_denom, proposal.height)?
+        .unwrap();
     let total_v_token = vtokens.vtoken;
     /////query token TOTAL SUPPLY
     let total_weight = get_token_supply(deps.as_ref(), app_id, gov_token_id)?;
@@ -1143,7 +1141,7 @@ pub fn emission(
     let mut emission = EMISSION.load(deps.storage, proposal.app_id)?;
 
     //// CALCULATE EFFECTIVE EMISSION = (REWARD_PENDING*EMISSION RATE)*(1-PERCENTAGE_LOCKED)
-    let reward_emision = Uint128::from(emission.rewards_pending) * emission.emmission_rate;
+    let reward_emision = Uint128::from(emission.rewards_pending) * emission.emission_rate;
     let effective_emission = reward_emision.mul(Decimal::one() - percentage_locked);
     // mint and distribue to vault owner  based vote portion
     let ext_pair = proposal.extended_pair.clone();
@@ -1227,6 +1225,11 @@ pub fn vote_proposal(
     proposal_id: u64,
     extended_pair: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    if ADMIN.is_admin(deps.as_ref(), &info.sender)? {
+        return Err(ContractError::CustomError {
+            val: "Admin cannot vote".to_string(),
+        });
+    }
     // do not accept  funds
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
@@ -1275,7 +1278,11 @@ pub fn vote_proposal(
 
     //balance of owner for the for denom for voting
 
-    let vtokens = VTOKENS.may_load_at_height(deps.storage, (info.sender.clone(), &gov_token_denom),proposal.height)?;
+    let vtokens = VTOKENS.may_load_at_height(
+        deps.storage,
+        (info.sender.clone(), &gov_token_denom),
+        proposal.height,
+    )?;
 
     if vtokens.is_none() {
         return Err(ContractError::CustomError {
@@ -1366,8 +1373,9 @@ pub fn vote_proposal(
 
     // update proposal
 
-    Ok(Response::new().add_attribute("method", "voted for proposal")
-                      .add_attribute("voted on", extended_pair.to_string()))
+    Ok(Response::new()
+        .add_attribute("method", "voted for proposal")
+        .add_attribute("voted on", extended_pair.to_string()))
 }
 
 pub fn raise_proposal(
@@ -1377,15 +1385,8 @@ pub fn raise_proposal(
     app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //// only admin can execute
-    let admin = ADMIN.load(deps.storage)?;
-    if info.sender!=admin
-    {
-        return Err(ContractError::CustomError {
-            val: "Unauthorized"
-                .to_string(),
-        });
+    ADMIN.assert_admin(deps.as_ref(), &info.sender)?;
 
-    }
     // do not accept  funds
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
@@ -1395,14 +1396,11 @@ pub fn raise_proposal(
     ////get ext pairs vec from app
     let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
 
-    //// No proposal 
-    if ext_pairs.is_empty()
-    {
+    //// No proposal
+    if ext_pairs.is_empty() {
         return Err(ContractError::CustomError {
-            val: "No extended pair to vote"
-                .to_string(),
+            val: "No extended pair to vote".to_string(),
         });
-
     }
     //check no proposal active for app
     let current_app_proposal = (APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?).unwrap_or(0);
@@ -1424,22 +1422,22 @@ pub fn raise_proposal(
     let app_id_param = app_id;
     //update proposal maps
     let proposal = Proposal {
-        app_id: app_id_param,//app_id for proposal
+        app_id: app_id_param,              //app_id for proposal
         voting_start_time: env.block.time, // Current block timestamp
         voting_end_time: env.block.time.plus_seconds(voting_period), // end voting timestamp
-        extended_pair: ext_pairs, // extended pairs for which voting is taking place
-        emission_completed: false, //initially set emission_completed as false
-        rebase_completed: false, //initially set rebase_completed as false
-        emission_distributed: 0, //emission distributed token as 0 
-        rebase_distributed: 0, //rebase distributed token as 0
-        total_voted_weight: 0, // total_weight of voted vtoken
+        extended_pair: ext_pairs,          // extended pairs for which voting is taking place
+        emission_completed: false,         //initially set emission_completed as false
+        rebase_completed: false,           //initially set rebase_completed as false
+        emission_distributed: 0,           //emission distributed token as 0
+        rebase_distributed: 0,             //rebase distributed token as 0
+        total_voted_weight: 0,             // total_weight of voted vtoken
         foundation_emission_completed: false, // emission to foundation addresses as false
-        foundation_distributed: 0, // total distributed tokens as 0
+        foundation_distributed: 0,         // total distributed tokens as 0
         total_surplus: Coin {
             amount: Uint128::from(0_u32),
             denom: "nodenom".to_string(),
-        }  ,// unintialized dummy token
-        height: env.block.height // current block height of token,
+        }, // unintialized dummy token
+        height: env.block.height,          // current block height of token,
     };
     let mut current_proposal = PROPOSALCOUNT.load(deps.storage).unwrap_or(0);
     current_proposal += 1;
@@ -1463,7 +1461,6 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
         return Err(StdError::generic_err("Cannot upgrade from a newer version").into());
     }
 
-
     // set the new version
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -1477,13 +1474,16 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
     match msg {
         SudoMsg::UpdateVestingContract { address } => {
             let mut state = STATE.load(deps.storage)?;
-            state.vesting_contract =     deps.api.addr_validate(&address.clone().into_string())?;
+            state.vesting_contract = deps.api.addr_validate(&address.clone().into_string())?;
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
-        SudoMsg::UpdateEmissionRate { emission_rate,app_id } => {
+        SudoMsg::UpdateEmissionRate {
+            emission_rate,
+            app_id,
+        } => {
             let mut emission = EMISSION.load(deps.storage, app_id)?;
-            emission.emmission_rate=emission_rate;
+            emission.emission_rate = emission_rate;
             EMISSION.save(deps.storage, emission.app_id, &emission)?;
             Ok(Response::new())
         }
@@ -1507,11 +1507,9 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
-        SudoMsg::UpdateAdmin {
-            admin,
-        } => {
+        SudoMsg::UpdateAdmin { admin } => {
             deps.api.addr_validate(&admin.clone().into_string())?;
-            ADMIN.save(deps.storage, &admin)?;
+            ADMIN.set(deps, Some(admin))?;
             Ok(Response::new())
         }
         SudoMsg::UpdateVotingPeriod { voting_period } => {
@@ -1520,7 +1518,6 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
-
     }
 }
 
@@ -1565,10 +1562,10 @@ mod tests {
                 app_id: 1,
                 total_rewards: 200000,
                 rewards_pending: 200000,
-                emmission_rate: Decimal::new(Uint128::from(2 as u64)),
+                emission_rate: Decimal::new(Uint128::from(2 as u64)),
                 distributed_rewards: 123333,
             },
-            admin: Addr::unchecked("admin")
+            admin: Addr::unchecked("admin"),
         }
     }
 
@@ -1969,10 +1966,10 @@ mod tests {
         let _info = mock_info("owner", &coins(100, DENOM.to_string()));
         let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
             .unwrap_err();
-            match res {
-                ContractError::NotFound { .. } => {}
-                e => panic!("{:?}", e),
-            };
+        match res {
+            ContractError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
     }
 
     #[test]
@@ -2057,7 +2054,7 @@ mod tests {
             .unwrap();
 
         let msg = ExecuteMsg::Transfer {
-            recipent: recipient.to_string(),
+            recipient: recipient.to_string(),
             locking_period: LockingPeriod::T1,
             denom: DENOM.to_string(),
         };
@@ -2133,7 +2130,7 @@ mod tests {
             .unwrap();
 
         let msg = ExecuteMsg::Transfer {
-            recipent: recipient.to_string(),
+            recipient: recipient.to_string(),
             locking_period: LockingPeriod::T1,
             denom: denom1.to_string(),
         };

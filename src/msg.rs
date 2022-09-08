@@ -1,5 +1,5 @@
 use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
-use cosmwasm_std::{Addr, Coin, Decimal,Uint128,};
+use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +36,7 @@ pub enum ExecuteMsg {
         proposal_id: u64,
         extended_pair: u64,
     },
-    Emmission {
+    Emission {
         proposal_id: u64,
     },
     Rebase {
@@ -51,7 +51,7 @@ pub enum ExecuteMsg {
         denom: String,
     },
     Transfer {
-        recipent: String,
+        recipient: String,
         locking_period: LockingPeriod,
         denom: String,
     },
@@ -114,7 +114,7 @@ pub enum QueryMsg {
     TotalVTokens {
         address: Addr,
         denom: String,
-        height: Option<u64>
+        height: Option<u64>,
     },
     State {},
     Emission {
@@ -138,7 +138,7 @@ pub enum SudoMsg {
     },
     UpdateEmissionRate {
         emission_rate: Decimal,
-        app_id: u64
+        app_id: u64,
     },
     UpdateFoundationInfo {
         addresses: Vec<String>,
@@ -155,7 +155,7 @@ pub enum SudoMsg {
     },
     UpdateVotingPeriod {
         voting_period: u64,
-    }
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -198,5 +198,3 @@ pub struct ProposalPairVote {
     pub total_vote: Uint128,
     pub bribe: Vec<Coin>,
 }
-
-

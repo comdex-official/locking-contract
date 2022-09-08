@@ -1,10 +1,11 @@
 use cosmwasm_std::{Addr, Timestamp};
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use cw_storage_plus::{Item, Map,SnapshotMap, Strategy};
+use cw_controllers::Admin;
+use cw_storage_plus::{Item, Map, SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub const VOTEPOWER: SnapshotMap<(&Addr,String), Uint128 > = SnapshotMap::new(
+pub const VOTEPOWER: SnapshotMap<(&Addr, String), Uint128> = SnapshotMap::new(
     "voters_key",
     "voters_checkpoints",
     "voters_changelogs",
@@ -95,7 +96,7 @@ pub struct TokenSupply {
 // Holds the internal state
 pub const STATE: Item<State> = Item::new("state");
 // Owner to NFT
-pub const ADMIN: Item<Addr> = Item::new("admin_address");
+pub const ADMIN: Admin = Admin::new("admin");
 
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
@@ -135,7 +136,7 @@ pub struct Emission {
     pub app_id: u64,
     pub total_rewards: u128,
     pub rewards_pending: u128,
-    pub emmission_rate: Decimal,
+    pub emission_rate: Decimal,
     pub distributed_rewards: u128,
 }
 
@@ -144,12 +145,6 @@ pub struct Vote {
     pub app_id: u64,
     pub extended_pair: u64,
     pub vote_weight: u128,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Rewards {
-    pub bribe: Vec<Coin>,
-    pub rebase: Coin,
 }
 
 pub const PROPOSALCOUNT: Item<u64> = Item::new("Proposal Count");
@@ -172,4 +167,3 @@ pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max proposal cla
 
 pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed proposals");
 
-pub const LOCKINGADDRESS: Map<u64, Vec<Addr>> = Map::new("locking addresses ");

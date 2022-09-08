@@ -1,4 +1,5 @@
 use cosmwasm_std::StdError;
+use cw_controllers::AdminError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -21,4 +22,7 @@ pub enum ContractError {
 
     #[error("Funds should not be sent with the chosen operation")]
     FundsNotAllowed {},
+
+    #[error("{0}")]
+    Admin(#[from] AdminError),
 }
