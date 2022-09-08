@@ -16,7 +16,7 @@ use crate::state::{
 use comdex_bindings::{ComdexMessages, ComdexQuery};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{
+use cosmwasm_std::{Api,
     to_binary, Addr, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
     Response, StdError, StdResult, Storage, Uint128, WasmQuery,
 };
@@ -34,6 +34,13 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+  
+    deps.api.addr_validate(&msg.vesting_contract.clone().into_string())?;
+    deps.api.addr_validate(&msg.admin.clone().into_string())?;
+    map_validate(deps.api, &msg.foundation_addr)?;
+    query_app_exists(deps.as_ref(), msg.emission.app_id)?;
+    let mut foundation_addr_unique=msg.foundation_addr.clone();
+    foundation_addr_unique.dedup();
     let state = State {
         t1: msg.t1,
         t2: msg.t2,
@@ -41,12 +48,46 @@ pub fn instantiate(
         t4: msg.t4,
         num_tokens: 0_u64,
         vesting_contract: msg.vesting_contract,
-        foundation_addr: msg.foundation_addr,
+        foundation_addr: foundation_addr_unique ,
         foundation_percentage: msg.foundation_percentage,
         surplus_asset_id: msg.surplus_asset_id,
         voting_period: msg.voting_period,
     };
 
+
+    if msg.foundation_percentage > Decimal::one()
+    {
+        return Err(ContractError::CustomError {
+            val: "Foundation Emission percentage cannot be greater than 100 %"
+                .to_string(),
+        });
+
+    }
+    if msg.emission.rewards_pending!=0
+    {
+        return Err(ContractError::CustomError {
+            val: "Pending rewards should be zero %"
+                .to_string(),
+        });
+
+    }
+    if msg.emission.distributed_rewards !=0
+    {
+        return Err(ContractError::CustomError {
+            val: "Distributed rewards should be zero"
+                .to_string(),
+        });
+
+    }
+
+    if msg.emission.emmission_rate>Decimal::one()
+    {
+        return Err(ContractError::CustomError {
+            val: "Emission rate cannot be greater one"
+                .to_string(),
+        });
+
+    }
     //// Set Contract version
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     //// Set State
@@ -61,6 +102,10 @@ pub fn instantiate(
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("owner", info.sender))
+}
+
+pub fn map_validate(api: &dyn Api, admins: &[String]) -> StdResult<Vec<Addr>> {
+    admins.iter().map(|addr| api.addr_validate(addr)).collect()
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -777,13 +822,18 @@ pub fn calculate_bribe_reward(
         let total_vote_weight = PROPOSALVOTE
             .load(deps.storage, (proposalid, vote.extended_pair))?
             .u128();
-        let total_bribe =
-            BRIBES_BY_PROPOSAL.load(deps.storage, (proposalid, vote.extended_pair))?;
+        let total_bribe = match 
+            BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposalid, vote.extended_pair))?
+            {
+                Some(val) => val,
+                None => vec![],
+            };
+    
 
         let mut claimable_bribe: Vec<Coin> = vec![];
 
         for coin in total_bribe.clone() {
-            let claimable_amount = (vote.vote_weight / total_vote_weight) * coin.amount.u128();
+            let claimable_amount = (Decimal::new(Uint128::from(vote.vote_weight)).div(Decimal::new(Uint128::from(total_vote_weight))) ).mul( coin.amount) ;
             let claimable_coin = Coin {
                 amount: Uint128::from(claimable_amount),
                 denom: coin.denom,
@@ -883,10 +933,10 @@ pub fn calculate_rebase_reward(
         let total_share = locked_t1 + locked_t2 + locked_t3 + locked_t4;
 
         //// lock in t1
-        let lock_amount_t1 = (locked_t1 / total_share) * (total_rebase_amount / total_locked);
+        let lock_amount_t1 = (Decimal::new(Uint128::from(locked_t1)).div (Decimal::new(Uint128::from(total_share)))).mul((Decimal::new(Uint128::from(total_rebase_amount)).div(Decimal::new(Uint128::from(total_locked))))).mul(Uint128::from(1_u128));
         
 
-        if lock_amount_t1!=0_u128{
+        if lock_amount_t1!=Uint128::zero(){
             let fund_t1 = Coin {
                 amount: Uint128::from(lock_amount_t1),
                 denom: gov_token_denom.clone(),
@@ -901,9 +951,9 @@ pub fn calculate_rebase_reward(
             LockingPeriod::T1,
         )?;
         }
-        let lock_amount_t2 = (locked_t2 / total_share) * (total_rebase_amount / total_locked);
+        let lock_amount_t2 = (Decimal::new(Uint128::from(locked_t2)).div (Decimal::new(Uint128::from(total_share)))).mul((Decimal::new(Uint128::from(total_rebase_amount)).div(Decimal::new(Uint128::from(total_locked))))).mul(Uint128::from(1_u128));
         
-        if lock_amount_t2!=0_u128{
+        if lock_amount_t2!=Uint128::zero(){
         let fund_t2 = Coin {
             amount: Uint128::from(lock_amount_t2),
             denom: gov_token_denom.clone(),
@@ -917,8 +967,9 @@ pub fn calculate_rebase_reward(
             LockingPeriod::T2,
         )?;
     }
-        let lock_amount_t3 = (locked_t3 / total_share) * (total_rebase_amount / total_locked);
-        if lock_amount_t3!=0_u128{
+        let lock_amount_t3 = (Decimal::new(Uint128::from(locked_t3)).div (Decimal::new(Uint128::from(total_share)))).mul((Decimal::new(Uint128::from(total_rebase_amount)).div(Decimal::new(Uint128::from(total_locked))))).mul(Uint128::from(1_u128));
+        
+        if lock_amount_t3!=Uint128::zero(){
         let fund_t3 = Coin {
             amount: Uint128::from(lock_amount_t3),
             denom: gov_token_denom.clone(),
@@ -932,8 +983,9 @@ pub fn calculate_rebase_reward(
             LockingPeriod::T3,
         )?;
     }
-        let lock_amount_t4 = (locked_t4 / total_share) * (total_rebase_amount / total_locked);
-        if lock_amount_t4!=0_u128{
+        let lock_amount_t4 = (Decimal::new(Uint128::from(locked_t4)).div (Decimal::new(Uint128::from(total_share)))).mul((Decimal::new(Uint128::from(total_rebase_amount)).div(Decimal::new(Uint128::from(total_locked))))).mul(Uint128::from(1_u128));
+        
+        if lock_amount_t4!=Uint128::zero(){
         let fund_t4 = Coin {
             amount: Uint128::from(lock_amount_t4),
             denom: gov_token_denom.clone(),
@@ -997,7 +1049,7 @@ pub fn calculate_surplus_reward(
     for vtoken in vtokens {
         locked += vtoken.vtoken.amount.u128();
     }
-    let mut share = locked.div(total_locked);
+    let mut share = Decimal::new(Uint128::from( locked)).div(Decimal::new(Uint128::from(total_locked))).mul(Uint128::from(1_u8)).u128();
     share *= proposal_surplus.u128();
     total_claimable+=share;
 
@@ -1425,11 +1477,13 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
     match msg {
         SudoMsg::UpdateVestingContract { address } => {
             let mut state = STATE.load(deps.storage)?;
-            state.vesting_contract = address;
+            state.vesting_contract =     deps.api.addr_validate(&address.clone().into_string())?;
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
-        SudoMsg::UpdateEmissionRate { emission } => {
+        SudoMsg::UpdateEmissionRate { emission_rate,app_id } => {
+            let mut emission = EMISSION.load(deps.storage, app_id)?;
+            emission.emmission_rate=emission_rate;
             EMISSION.save(deps.storage, emission.app_id, &emission)?;
             Ok(Response::new())
         }
@@ -1438,7 +1492,8 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             foundation_percentage,
         } => {
             let mut state = STATE.load(deps.storage)?;
-            state.foundation_addr = addresses.iter().map(|e| e.to_string()).collect();
+            map_validate(deps.api, &addresses)?;
+            state.foundation_addr = addresses;
             state.foundation_percentage = foundation_percentage;
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
@@ -1455,6 +1510,7 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
         SudoMsg::UpdateAdmin {
             admin,
         } => {
+            deps.api.addr_validate(&admin.clone().into_string())?;
             ADMIN.save(deps.storage, &admin)?;
             Ok(Response::new())
         }

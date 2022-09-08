@@ -9,7 +9,7 @@ use crate::state::{
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, Binary, Coin, Deps, Env, StdError, StdResult, Uint128,
+    entry_point, to_binary, Addr, Binary, Coin, Deps, Env, StdError, StdResult, Uint128,Decimal
 };
 
 const MAX_LIMIT: u32 = 30;
@@ -104,6 +104,7 @@ pub fn query_vtoken_balance(
     denom: String,
     height:Option<u64>,
 ) -> StdResult<Uint128> {
+    deps.api.addr_validate(&address.clone().into_string())?;
     let query_height=height.unwrap_or(env.block.height);
     let vtokens = VTOKENS.may_load_at_height(deps.storage, (address, &denom),query_height)?;
     if vtokens.is_none() {
@@ -153,10 +154,11 @@ pub fn query_issued_vtokens(
     start_after: u32,
     limit: Option<u32>,
 ) -> StdResult<Vec<Vtoken>> {
+    deps.api.addr_validate(&address.clone().into_string())?;
+
     let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
     let start = start_after as usize;
     let checkpoint = start + limit;
-
     let state = match VTOKENS.may_load(deps.storage, (address, &denom))? {
         Some(val) => {
             // If the vec len is smaller than start_after, then empty vec
@@ -226,6 +228,8 @@ pub fn query_proposal_all_up(
     address: Addr,
     proposal_id: u64,
 ) -> StdResult<ProposalVoteRespons> {
+    deps.api.addr_validate(&address.clone().into_string())?;
+
     let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
     let mut proposal_pair_data_allup:Vec<ProposalPairVote> =vec![];
     for i in proposal.extended_pair
@@ -351,7 +355,7 @@ pub fn calculate_bribe_reward_query(
         let mut claimable_bribe: Vec<Coin> = vec![];
 
         for coin in total_bribe.clone() {
-            let claimable_amount = (vote.vote_weight / total_vote_weight) * coin.amount.u128();
+            let claimable_amount =  (Decimal::new(Uint128::from(vote.vote_weight)).div(Decimal::new(Uint128::from(total_vote_weight))) ).mul( coin.amount);
             let claimable_coin = Coin {
                 amount: Uint128::from(claimable_amount),
                 denom: coin.denom,

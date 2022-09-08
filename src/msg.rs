@@ -137,10 +137,11 @@ pub enum SudoMsg {
         address: Addr,
     },
     UpdateEmissionRate {
-        emission: Emission,
+        emission_rate: Decimal,
+        app_id: u64
     },
     UpdateFoundationInfo {
-        addresses: Vec<Addr>,
+        addresses: Vec<String>,
         foundation_percentage: Decimal,
     },
     UpdateLockingPeriod {
