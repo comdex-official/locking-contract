@@ -25,4 +25,15 @@ pub enum ContractError {
 
     #[error("{0}")]
     Admin(#[from] AdminError),
+
+    #[error("Failure response from sub-message: {0}")]
+    SubMsgFailure(String),
+
+    #[error("Invalid reply from sub-message: {0}")]
+    ParseFailure(String),
+
+    #[error("Error occurred while converting from UTF-8")]
+    BrokenUtf8(#[from] std::string::FromUtf8Error),
+
+
 }

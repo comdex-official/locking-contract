@@ -10,7 +10,7 @@ use crate::state::{
 };
 use crate::state::{
     Proposal, Vote, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
-    MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE,
+    MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_VOTE,REBASE_CLAIMED
 };
 
 use comdex_bindings::{ComdexMessages, ComdexQuery};
@@ -21,7 +21,6 @@ use cosmwasm_std::{
     Response, StdError, StdResult, Storage, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
-use cw_utils::may_pay;
 use std::ops::{Div, Mul};
 
 // version info for migration info
@@ -276,21 +275,20 @@ pub fn handle_lock_nft(
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
 
-    // let app_response = query_app_exists(deps.as_ref(), app_id)?;
-    // let gov_token_id = app_response.gov_token_id;
-    // let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
-    // if gov_token_denom.is_empty() || gov_token_id == 0 {
-    //     return Err(ContractError::CustomError {
-    //         val: "Gov token not found".to_string(),
-    //     });
-    // }
+    let app_response = query_app_exists(deps.as_ref(), app_id)?;
+    let gov_token_id = app_response.gov_token_id;
+    let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
+    if gov_token_denom.is_empty() || gov_token_id == 0 {
+        return Err(ContractError::CustomError {
+            val: "Gov token not found".to_string(),
+        });
+    }
 
-    // if info.funds[0].denom != gov_token_denom {
-    //     return Err(ContractError::CustomError {
-    //         val: "Wrong Deposit token".to_string(),
-    //     });
-    // }
-
+    if info.funds[0].denom != gov_token_denom {
+        return Err(ContractError::CustomError {
+            val: "Wrong Deposit token".to_string(),
+        });
+    }
     lock_funds(
         deps,
         env,
@@ -846,15 +844,18 @@ pub fn calculate_rebase_reward(
     proposal_id: u64,
     app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
-    let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+    let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
     if !proposal.emission_completed {
         return Err(ContractError::CustomError {
             val: "Emission for proposal not completed".to_string(),
         });
     }
-    if proposal.rebase_completed {
+    let has_rebased =REBASE_CLAIMED.load(deps.storage, (info.sender.clone(),proposal_id)).unwrap_or_default();
+
+    if has_rebased
+    {
         return Err(ContractError::CustomError {
-            val: String::from("Rebase already completed"),
+            val: "Already claimed rebase".to_string(),
         });
     }
     let total_rebase_amount: u128 = proposal.rebase_distributed;
@@ -983,15 +984,12 @@ pub fn calculate_rebase_reward(
             deps.branch(),
             env,
             app_id,
-            info.sender,
+            info.sender.clone(),
             fund_t4,
             LockingPeriod::T4,
         )?;
     }
-
-    proposal.rebase_completed = true;
-    PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
-
+    REBASE_CLAIMED.save(deps.storage, (info.sender,proposal_id), &true)?;
     Ok(Response::new().add_attribute("method", "rebase all holders"))
 }
 

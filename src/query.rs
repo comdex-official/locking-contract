@@ -458,15 +458,6 @@ mod tests {
             env.block.height,
         );
 
-        // Query the withdrawable balance; should be 250
-        // let res = query_withdrawable(deps.as_ref(), env.clone(), DENOM.to_string())
-        //     .unwrap();
-        // assert_eq!(
-        //     res.amount,
-        //     Coin {
-        //         denom: DENOM.to_string(),
-        //         amount: Uint128::from(250u128)
-        //     }
-        // );
+
     }
 }
