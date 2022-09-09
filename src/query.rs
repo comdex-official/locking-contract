@@ -457,7 +457,5 @@ mod tests {
             &data,
             env.block.height,
         );
-
-
     }
 }

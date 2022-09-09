@@ -34,6 +34,4 @@ pub enum ContractError {
 
     #[error("Error occurred while converting from UTF-8")]
     BrokenUtf8(#[from] std::string::FromUtf8Error),
-
-
 }
