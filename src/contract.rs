@@ -1366,6 +1366,7 @@ pub fn raise_proposal(
             val: "Unauthorized".to_string(),
         });
     }
+
     // do not accept funds
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
@@ -1381,6 +1382,7 @@ pub fn raise_proposal(
             val: "No extended pair to vote".to_string(),
         });
     }
+
     //check no proposal active for app
     let current_app_proposal = (APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?).unwrap_or(0);
 
@@ -1418,6 +1420,7 @@ pub fn raise_proposal(
         }, // unintialized dummy token
         height: env.block.height,          // current block height of token,
     };
+
     let mut current_proposal = PROPOSALCOUNT.load(deps.storage).unwrap_or(0);
     current_proposal += 1;
     PROPOSALCOUNT.save(deps.storage, &current_proposal)?;
@@ -1507,7 +1510,7 @@ mod tests {
     use super::*;
     use crate::state::Emission;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError};
+    use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError, Timestamp};
 
     const DENOM: &str = "TKN";
 
@@ -2110,7 +2113,7 @@ mod tests {
     }
 
     #[test]
-    fn raise_proposal() {
+    fn raise_proposal_non_admin() {
         // Mock dependencies
         let mut deps = mock_dependencies();
         let env = mock_env();
@@ -2119,5 +2122,118 @@ mod tests {
         // Initialize
         let imsg = init_msg();
         instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
+
+        // Raise proposal request from non admin
+        let info = mock_info("not_admin", &[]);
+        let msg = ExecuteMsg::RaiseProposal { app_id: 1 };
+
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+    }
+
+    #[test]
+    fn raise_proposal_funds_sent() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
+
+        // Raise proposal request from non admin
+        let info = mock_info("admin", &coins(100, DENOM.to_string()));
+        let msg = ExecuteMsg::RaiseProposal { app_id: 1 };
+
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+    }
+
+    #[test]
+    fn raise_proposal_basic_functionality() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
+
+        // code for add app_id.
+
+        // Raise proposal request from non admin
+        let info = mock_info("admin", &[]);
+        let msg = ExecuteMsg::RaiseProposal { app_id: 1 };
+
+        // Sucessful execution
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+    }
+
+    #[test]
+    fn vote_proposal_invalid_proposal_id() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
+
+        // Invalid proposal id
+        let info = mock_info("voter", &[]);
+        let msg = ExecuteMsg::VoteProposal {
+            app_id: 1,
+            proposal_id: 23,
+            extended_pair: 3,
+        };
+
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+    }
+
+    #[test]
+    fn vote_proposal_not_in_voting_period() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        env.block.time = Timestamp::from_seconds(1);
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
+
+        // Create a proposal
+        let proposal = Proposal {
+            app_id: 1,
+            voting_start_time: 7,
+            voting_end_time: 10,
+            extended_pair: vec![],
+            emission_completed: false,
+            rebase_completed: false,
+            foundation_emission_completed: false,
+            emission_distributed: 0,
+            rebase_distributed: 0,
+            foundation_distributed: 0,
+            total_surplus: coin(0, DENOM),
+            total_voted_weight: 12,
+            height: 50,
+        };
+        PROPOSAL.save(deps.as_mut().storage, 23, &proposal).unwrap();
+
+        // Set current block time past the voting_end_time
+        env.block.time = Timestamp::from_seconds(50);
+
+        let info = mock_info("voter", &[]);
+        let msg = ExecuteMsg::VoteProposal {
+            app_id: 1,
+            proposal_id: 23,
+            extended_pair: 3,
+        };
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        match res {
+            ContractError::CustomError { .. } => {}
+            e => panic!("{:?}", e),
+        };
     }
 }
