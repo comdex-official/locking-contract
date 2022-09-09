@@ -1,7 +1,10 @@
 use std::borrow::Borrow;
+use std::ops::{Div, Mul};
 
 use crate::error::ContractError;
-use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse,ProposalPairVote,ProposalVoteRespons};
+use crate::msg::{
+    IssuedNftResponse, ProposalPairVote, ProposalVoteRespons, QueryMsg, WithdrawableResponse,
+};
 use crate::state::{
     Emission, Proposal, State, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
     COMPLETEDPROPOSALS, EMISSION, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, STATE, SUPPLY,
@@ -9,7 +12,7 @@ use crate::state::{
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, Binary, Coin, Deps, Env, StdError, StdResult, Uint128,Decimal
+    entry_point, to_binary, Addr, Binary, Coin, Decimal, Deps, Env, StdError, StdResult, Uint128,
 };
 
 const MAX_LIMIT: u32 = 30;
@@ -51,9 +54,11 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::Withdrawable { address, denom } => {
             to_binary(&query_withdrawable(deps, env, address, denom)?)
         }
-        QueryMsg::TotalVTokens { address, denom,height } => {
-            to_binary(&query_vtoken_balance(deps, env, address, denom,height)?)
-        }
+        QueryMsg::TotalVTokens {
+            address,
+            denom,
+            height,
+        } => to_binary(&query_vtoken_balance(deps, env, address, denom, height)?),
         QueryMsg::State {} => to_binary(&query_state(deps, env)?),
         QueryMsg::Emission { app_id } => to_binary(&query_emission(deps, env, app_id)?),
         QueryMsg::ExtendedPairVote {
@@ -102,11 +107,11 @@ pub fn query_vtoken_balance(
     env: Env,
     address: Addr,
     denom: String,
-    height:Option<u64>,
+    height: Option<u64>,
 ) -> StdResult<Uint128> {
     deps.api.addr_validate(&address.clone().into_string())?;
-    let query_height=height.unwrap_or(env.block.height);
-    let vtokens = VTOKENS.may_load_at_height(deps.storage, (address, &denom),query_height)?;
+    let query_height = height.unwrap_or(env.block.height);
+    let vtokens = VTOKENS.may_load_at_height(deps.storage, (address, &denom), query_height)?;
     if vtokens.is_none() {
         return Ok(Uint128::zero());
     }
@@ -231,29 +236,38 @@ pub fn query_proposal_all_up(
     deps.api.addr_validate(&address.clone().into_string())?;
 
     let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
-    let mut proposal_pair_data_allup:Vec<ProposalPairVote> =vec![];
-    for i in proposal.extended_pair
-    {
-        let extended_pair_total_vote=PROPOSALVOTE.load(deps.storage, (proposal_id,i)).unwrap_or(Uint128::zero());
-        let user_vote=match VOTERSPROPOSAL.may_load(deps.storage, (address.clone(),proposal_id))?
-        {
-            None => Uint128::zero(),
-            Some(vote) => { if vote.extended_pair==i { Uint128::from(vote.vote_weight)} else { Uint128::zero()}
-            }    
-        } ;
-        let bribe_param = BRIBES_BY_PROPOSAL.load(deps.storage, (proposal_id,i)).unwrap_or_default();
+    let mut proposal_pair_data_allup: Vec<ProposalPairVote> = vec![];
+    for i in proposal.extended_pair {
+        let extended_pair_total_vote = PROPOSALVOTE
+            .load(deps.storage, (proposal_id, i))
+            .unwrap_or(Uint128::zero());
+        let user_vote =
+            match VOTERSPROPOSAL.may_load(deps.storage, (address.clone(), proposal_id))? {
+                None => Uint128::zero(),
+                Some(vote) => {
+                    if vote.extended_pair == i {
+                        Uint128::from(vote.vote_weight)
+                    } else {
+                        Uint128::zero()
+                    }
+                }
+            };
+        let bribe_param = BRIBES_BY_PROPOSAL
+            .load(deps.storage, (proposal_id, i))
+            .unwrap_or_default();
 
-        let proposal_pair_vote=ProposalPairVote{
+        let proposal_pair_vote = ProposalPairVote {
             extended_pair_id: i,
-            my_vote:user_vote,
-            total_vote:extended_pair_total_vote,
+            my_vote: user_vote,
+            total_vote: extended_pair_total_vote,
             bribe: bribe_param,
         };
         proposal_pair_data_allup.push(proposal_pair_vote);
-
     }
 
-    Ok(ProposalVoteRespons{proposal_pair_data:proposal_pair_data_allup})
+    Ok(ProposalVoteRespons {
+        proposal_pair_data: proposal_pair_data_allup,
+    })
 }
 
 pub fn query_vote(
@@ -345,17 +359,18 @@ pub fn calculate_bribe_reward_query(
         let total_vote_weight = PROPOSALVOTE
             .load(deps.storage, (proposalid, vote.extended_pair))?
             .u128();
-        let total_bribe = match BRIBES_BY_PROPOSAL
-            .may_load(deps.storage, (proposalid ,vote.extended_pair))?
-        {
-            Some(val) => val,
-            None => vec![],
-        };
+        let total_bribe =
+            match BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposalid, vote.extended_pair))? {
+                Some(val) => val,
+                None => vec![],
+            };
 
         let mut claimable_bribe: Vec<Coin> = vec![];
 
         for coin in total_bribe.clone() {
-            let claimable_amount =  (Decimal::new(Uint128::from(vote.vote_weight)).div(Decimal::new(Uint128::from(total_vote_weight))) ).mul( coin.amount);
+            let claimable_amount = (Decimal::new(Uint128::from(vote.vote_weight))
+                .div(Decimal::new(Uint128::from(total_vote_weight))))
+            .mul(coin.amount);
             let claimable_coin = Coin {
                 amount: Uint128::from(claimable_amount),
                 denom: coin.denom,
@@ -437,7 +452,12 @@ mod tests {
                 status: Status::Locked,
             },
         ];
-        _ = VTOKENS.save(deps.as_mut().storage, (info.sender.clone(), DENOM), &data,env.block.height);
+        _ = VTOKENS.save(
+            deps.as_mut().storage,
+            (info.sender.clone(), DENOM),
+            &data,
+            env.block.height,
+        );
 
         // Query the withdrawable balance; should be 250
         // let res = query_withdrawable(deps.as_ref(), env.clone(), DENOM.to_string())
