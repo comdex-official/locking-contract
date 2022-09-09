@@ -217,12 +217,12 @@ fn lock_funds(
     let nft = TOKENS.may_load(deps.storage, sender.clone())?;
 
     match nft {
-        Some(mut token) => {}
+        Some(_) => {}
         None => {
             // Create a new NFT
             state.num_tokens += 1;
 
-            let mut new_nft = TokenInfo {
+            let new_nft = TokenInfo {
                 owner: sender.clone(),
                 token_id: state.num_tokens,
             };
@@ -520,7 +520,7 @@ pub fn handle_transfer(
     let sender_denom_vtokens = sender_vtokens.unwrap();
 
     // Load tokens with given locking period
-    let mut sender_vtokens_to_transfer: Vec<&Vtoken> = sender_denom_vtokens
+    let sender_vtokens_to_transfer: Vec<&Vtoken> = sender_denom_vtokens
         .iter()
         .filter(|s| s.period == locking_period)
         .collect();
@@ -1556,6 +1556,7 @@ mod tests {
             custom_query_type: PhantomData,
         }
     }
+
     #[test]
     fn proper_initialization() {
         let env = mock_env();
@@ -1601,30 +1602,6 @@ mod tests {
 
         assert_eq!(token.owner, sender_addr.clone());
         assert_eq!(token.token_id, 1u64);
-        assert_eq!(token.vtokens.len(), 1);
-        // .token should be the same as locked tokens
-        assert_eq!(
-            token.vtokens[0].token,
-            Coin {
-                amount: Uint128::from(100u32),
-                denom: DENOM.to_string()
-            }
-        );
-        // .vtoken should be correct Vtoken released
-        assert_eq!(
-            token.vtokens[0].vtoken,
-            Coin {
-                amount: Uint128::from(25u32),
-                denom: String::from("vTKN")
-            }
-        );
-        assert_eq!(token.vtokens[0].start_time, env.block.time);
-        assert_eq!(
-            token.vtokens[0].end_time,
-            env.block.time.plus_seconds(imsg.t1.period)
-        );
-        assert_eq!(token.vtokens[0].period, LockingPeriod::T1);
-        assert_eq!(token.vtokens[0].status, Status::Locked);
 
         // Check to see the SUPPLY mapping is correct
         let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
@@ -1664,35 +1641,6 @@ mod tests {
             LockingPeriod::T2,
         )
         .unwrap();
-
-        // Check correct update in TOKENS
-        let nft = TOKENS
-            .load(deps.as_ref().storage, owner_addr.clone())
-            .unwrap();
-        assert_eq!(nft.vtokens.len(), 2);
-        assert_eq!(nft.vtokens[0].token.denom, "DNM1".to_string());
-        assert_eq!(nft.vtokens[0].vtoken.denom, "vDNM1".to_string());
-        assert_eq!(nft.vtokens[0].token.amount.u128(), 100u128);
-        assert_eq!(nft.vtokens[0].vtoken.amount.u128(), 25u128);
-        assert_eq!(nft.vtokens[0].start_time, env.block.time);
-        assert_eq!(
-            nft.vtokens[0].end_time,
-            env.block.time.plus_seconds(imsg.t1.period)
-        );
-        assert_eq!(nft.vtokens[0].period, LockingPeriod::T1);
-        assert_eq!(nft.vtokens[0].status, Status::Locked);
-
-        assert_eq!(nft.vtokens[1].token.denom, "DNM2".to_string());
-        assert_eq!(nft.vtokens[1].vtoken.denom, "vDNM2".to_string());
-        assert_eq!(nft.vtokens[1].token.amount.u128(), 100u128);
-        assert_eq!(nft.vtokens[1].vtoken.amount.u128(), 50u128);
-        assert_eq!(nft.vtokens[1].start_time, env.block.time);
-        assert_eq!(
-            nft.vtokens[1].end_time,
-            env.block.time.plus_seconds(imsg.t2.period)
-        );
-        assert_eq!(nft.vtokens[1].period, LockingPeriod::T2);
-        assert_eq!(nft.vtokens[1].status, Status::Locked);
 
         // Check correct update in SUPPLY
         let supply = SUPPLY.load(deps.as_ref().storage, "DNM1").unwrap();
@@ -1741,21 +1689,6 @@ mod tests {
         )
         .unwrap();
 
-        // Check correct updation in nft
-        let nft = TOKENS
-            .load(deps.as_ref().storage, owner_addr.clone())
-            .unwrap();
-        assert_eq!(nft.vtokens.len(), 2);
-        assert_eq!(nft.vtokens[0].token.amount.u128(), 100u128);
-        assert_eq!(nft.vtokens[0].vtoken.amount.u128(), 25u128);
-        assert_eq!(nft.vtokens[0].start_time, old_start_time);
-        assert_eq!(
-            nft.vtokens[0].end_time,
-            old_start_time.plus_seconds(imsg.t1.period)
-        );
-        assert_eq!(nft.vtokens[0].period, LockingPeriod::T1);
-        assert_eq!(nft.vtokens[0].status, Status::Locked);
-
         // Check correct update in SUPPLY
         let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
         assert_eq!(supply.vtoken, 50u128);
@@ -1797,25 +1730,6 @@ mod tests {
             LockingPeriod::T2,
         )
         .unwrap();
-
-        // Check correct updation in nft
-        let nft = TOKENS
-            .load(deps.as_ref().storage, owner_addr.clone())
-            .unwrap();
-        assert_eq!(nft.vtokens.len(), 2);
-        assert_eq!(nft.vtokens[0].token.amount.u128(), 100u128);
-        assert_eq!(nft.vtokens[0].vtoken.amount.u128(), 25u128);
-        assert_eq!(nft.vtokens[1].token.amount.u128(), 100u128);
-        assert_eq!(nft.vtokens[1].vtoken.amount.u128(), 50u128);
-        assert_eq!(nft.vtokens[1].start_time, env.block.time);
-        assert_eq!(
-            nft.vtokens[1].end_time,
-            env.block.time.plus_seconds(imsg.t2.period)
-        );
-        assert_eq!(nft.vtokens[0].period, LockingPeriod::T1);
-        assert_eq!(nft.vtokens[0].status, Status::Locked);
-        assert_eq!(nft.vtokens[1].period, LockingPeriod::T2);
-        assert_eq!(nft.vtokens[1].status, Status::Locked);
 
         // Check correct update in SUPPLY
         let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
@@ -1899,13 +1813,6 @@ mod tests {
         // let vtoken_balance = Uint128::from(25u64).sub(Uint128::from(10u64) * imsg.t1.weight);
         // assert_eq!(vtoken[0].vtoken.amount.u128(), vtoken_balance.u128());
         // assert_eq!(vtoken[0].status, Status::Unlocked);
-
-        // Check correct update in nft
-        let nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
-        assert_eq!(nft.vtokens.len(), 0);
-        // assert_eq!(nft.vtokens[0].token.amount.u128(), 90u128);
-        // assert_eq!(nft.vtokens[0].vtoken.amount.u128(), vtoken_balance.u128());
-        // assert_eq!(nft.vtokens[0].status, Status::Unlocked);
     }
 
     #[test]
@@ -2059,17 +1966,11 @@ mod tests {
         assert_eq!(res.len(), 1);
         assert_eq!(res[0], locked_vtokens[0]);
 
-        // Check correct update in sender nft
-        let sender_nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
-        assert_eq!(sender_nft.vtokens.len(), 0);
-
         // Check correct update in recipient nft
         let recipient_nft = TOKENS
             .load(deps.as_ref().storage, recipient.clone())
             .unwrap();
         assert_eq!(recipient_nft.owner, recipient.clone());
-        assert_eq!(recipient_nft.vtokens.len(), 1);
-        assert_eq!(recipient_nft.vtokens[0], locked_vtokens[0]);
     }
 
     #[test]
@@ -2146,17 +2047,12 @@ mod tests {
 
         // Check correct update in sender nft
         let sender_nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
-        assert_eq!(sender_nft.vtokens.len(), 0);
 
         // Check correct update in recipient nft
         let recipient_nft = TOKENS
             .load(deps.as_ref().storage, recipient.clone())
             .unwrap();
         assert_eq!(recipient_nft.owner, recipient.clone());
-        assert_eq!(recipient_nft.vtokens.len(), 2);
-        assert_eq!(recipient_nft.vtokens[0].token.amount.u128(), 100);
-        assert_eq!(recipient_nft.vtokens[0].token.denom, denom2.to_string());
-        assert_eq!(recipient_nft.vtokens[1], locked_vtokens[0]);
     }
 
     #[test]
