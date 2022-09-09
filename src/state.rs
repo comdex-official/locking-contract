@@ -1,10 +1,10 @@
 use cosmwasm_std::{Addr, Timestamp};
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use cw_storage_plus::{Item, Map,SnapshotMap, Strategy};
+use cw_storage_plus::{Item, Map, SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub const VOTEPOWER: SnapshotMap<(&Addr,String), Uint128 > = SnapshotMap::new(
+pub const VOTEPOWER: SnapshotMap<(&Addr, String), Uint128> = SnapshotMap::new(
     "voters_key",
     "voters_checkpoints",
     "voters_changelogs",
@@ -60,8 +60,6 @@ pub struct Vtoken {
 pub struct TokenInfo {
     /// Owner of the NFT
     pub owner: Addr,
-    /// All Vtokens for a user
-    pub vtokens: Vec<Vtoken>,
     /// Unique token id
     pub token_id: u64,
 }

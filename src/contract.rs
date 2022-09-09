@@ -213,29 +213,22 @@ fn lock_funds(
         funds.clone(),
     )?;
 
-    // Loads the NFT if present else None
+    // Loads the NFT if present else create a new NFT
     let nft = TOKENS.may_load(deps.storage, sender.clone())?;
 
     match nft {
-        Some(mut token) => {
-            // If NFT exists then lock new vtokens
-            token.vtokens.push(new_vtoken.clone());
-
-            TOKENS.save(deps.storage, sender.clone(), &token)?;
-        }
+        Some(mut token) => {}
         None => {
             // Create a new NFT
             state.num_tokens += 1;
 
             let mut new_nft = TokenInfo {
                 owner: sender.clone(),
-                vtokens: vec![],
                 token_id: state.num_tokens,
             };
 
             STATE.save(deps.storage, &state)?;
 
-            new_nft.vtokens.push(new_vtoken.clone());
             TOKENS.save(deps.storage, sender.clone(), &new_nft)?;
         }
     };
@@ -260,6 +253,7 @@ fn lock_funds(
 
     Ok(())
 }
+
 /// Lock the sent tokens and create corresponding vtokens
 pub fn handle_lock_nft(
     deps: DepsMut<ComdexQuery>,
@@ -405,6 +399,7 @@ fn update_denom_supply(
 
     Ok(())
 }
+
 /// Handles the withdrawal of tokens after completion of locking period.
 pub fn handle_withdraw(
     deps: DepsMut<ComdexQuery>,
@@ -479,25 +474,6 @@ pub fn handle_withdraw(
         false,
     )?;
 
-    // Update nft
-    let mut nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
-    let denom_indicies: Vec<(usize, &Vtoken)> = nft
-        .vtokens
-        .iter()
-        .enumerate()
-        .filter(|el| el.1.token.denom == denom && el.1.end_time < env.block.time)
-        .collect();
-
-    // Remove the unlocked tokens
-    let mut indices: Vec<usize> = vec![];
-    for (index, _) in denom_indicies {
-        indices.push(index);
-    }
-    for index in indices.into_iter().rev() {
-        nft.vtokens.remove(index);
-    }
-    TOKENS.save(deps.storage, info.sender.clone(), &nft)?;
-
     Ok(Response::new()
         .add_message(BankMsg::Send {
             to_address: info.sender.to_string(),
@@ -544,9 +520,8 @@ pub fn handle_transfer(
     let sender_denom_vtokens = sender_vtokens.unwrap();
 
     // Load tokens with given locking period
-    let sender_vtokens_to_transfer: Vec<Vtoken> = sender_denom_vtokens
-        .clone()
-        .into_iter()
+    let mut sender_vtokens_to_transfer: Vec<&Vtoken> = sender_denom_vtokens
+        .iter()
         .filter(|s| s.period == locking_period)
         .collect();
 
@@ -557,6 +532,30 @@ pub fn handle_transfer(
                 denom, locking_period
             ),
         });
+    }
+
+    {
+        // Load the recipients VTOKENS
+        let recipient_vtokens =
+            VTOKENS.may_load(deps.as_ref().storage, (recipient.clone(), &denom))?;
+
+        let mut recipient_vtokens = if let Some(val) = recipient_vtokens {
+            val
+        } else {
+            vec![]
+        };
+
+        // Extend the recipient vtokens with the sender vtokens
+        for vtoken in sender_vtokens_to_transfer {
+            recipient_vtokens.push(vtoken.to_owned())
+        }
+
+        VTOKENS.save(
+            deps.storage,
+            (recipient.clone(), &denom),
+            &recipient_vtokens,
+            env.block.height,
+        )?;
     }
 
     {
@@ -582,67 +581,26 @@ pub fn handle_transfer(
         }
     }
 
-    {
-        // Load the recipients VTOKENS
-        let recipient_vtokens =
-            VTOKENS.may_load(deps.as_ref().storage, (recipient.clone(), &denom))?;
-
-        let mut recipient_vtokens = if let Some(val) = recipient_vtokens {
-            val
-        } else {
-            vec![]
-        };
-
-        // Extend the recipient vtokens with the sender vtokens
-        recipient_vtokens.extend(sender_vtokens_to_transfer);
-
-        VTOKENS.save(
-            deps.storage,
-            (recipient.clone(), &denom),
-            &recipient_vtokens,
-            env.block.height,
-        )?;
-    }
-
-    // Load sender's nft
-    let mut sender_nft = TOKENS.load(deps.as_ref().storage, info.sender.clone())?;
-
-    // Retrieve tokens with denom and locking period
-    let sender_nft_denom_vtoken = sender_nft
-        .vtokens
-        .clone()
-        .into_iter()
-        .filter(|el| el.token.denom == denom && el.period == locking_period);
-
     // Load the recipients nft
     let recipient_nft = TOKENS.may_load(deps.as_ref().storage, recipient.clone())?;
 
-    let mut recipient_nft = if let Some(val) = recipient_nft {
-        val
-    } else {
-        let mut state = STATE.load(deps.as_ref().storage)?;
-        state.num_tokens += 1;
-        STATE.save(deps.storage, &state)?;
-        TokenInfo {
-            owner: recipient.clone(),
-            vtokens: vec![],
-            token_id: state.num_tokens,
+    match recipient_nft {
+        Some(_) => {}
+        None => {
+            // Crate a new NFT
+            let mut state = STATE.load(deps.as_ref().storage)?;
+            state.num_tokens += 1;
+            STATE.save(deps.storage, &state)?;
+            TOKENS.save(
+                deps.storage,
+                recipient.clone(),
+                &TokenInfo {
+                    owner: recipient.clone(),
+                    token_id: state.num_tokens,
+                },
+            )?;
         }
     };
-
-    recipient_nft.vtokens.extend(sender_nft_denom_vtoken);
-
-    TOKENS.save(deps.storage, recipient.clone(), &recipient_nft)?;
-
-    let sender_nft_denom_remaining: Vec<Vtoken> = sender_nft
-        .vtokens
-        .into_iter()
-        .filter(|el| !(el.token.denom == denom && el.period == locking_period))
-        .collect();
-
-    sender_nft.vtokens = sender_nft_denom_remaining;
-
-    TOKENS.save(deps.storage, info.sender.clone(), &sender_nft)?;
 
     Ok(Response::new()
         .add_attribute("action", "transfer")
