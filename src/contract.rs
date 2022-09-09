@@ -6,7 +6,7 @@ use crate::helpers::{
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
-    TOKENS, VTOKENS, Emission,
+    TOKENS, VTOKENS,
 };
 use crate::state::{
     Proposal, Vote, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
@@ -38,7 +38,7 @@ pub fn instantiate(
         .addr_validate(&msg.vesting_contract.clone().into_string())?;
     deps.api.addr_validate(&msg.admin.clone().into_string())?;
     map_validate(deps.api, &msg.foundation_addr)?;
-    //query_app_exists(deps.as_ref(), msg.emission.app_id)?;
+    query_app_exists(deps.as_ref(), msg.emission.app_id)?;
     let mut foundation_addr_unique = msg.foundation_addr.clone();
     foundation_addr_unique.dedup();
     let state = State {
@@ -212,12 +212,12 @@ fn lock_funds(
     let nft = TOKENS.may_load(deps.storage, sender.clone())?;
 
     match nft {
-        Some(mut token) => {}
+        Some(_) => {}
         None => {
             // Create a new NFT
             state.num_tokens += 1;
 
-            let mut new_nft = TokenInfo {
+            let  new_nft = TokenInfo {
                 owner: sender.clone(),
                 token_id: state.num_tokens,
             };
@@ -498,7 +498,7 @@ pub fn handle_transfer(
     let sender_denom_vtokens = sender_vtokens.unwrap();
 
     // Load tokens with given locking period
-    let mut sender_vtokens_to_transfer: Vec<&Vtoken> = sender_denom_vtokens
+    let  sender_vtokens_to_transfer: Vec<&Vtoken> = sender_denom_vtokens
         .iter()
         .filter(|s| s.period == locking_period)
         .collect();
