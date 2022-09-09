@@ -61,8 +61,6 @@ pub struct Vtoken {
 pub struct TokenInfo {
     /// Owner of the NFT
     pub owner: Addr,
-    /// All Vtokens for a user
-    pub vtokens: Vec<Vtoken>,
     /// Unique token id
     pub token_id: u64,
 }
