@@ -916,11 +916,10 @@ pub fn calculate_rebase_reward(
         }
     }
 
-    let total_share = locked_t1 + locked_t2 + locked_t3 + locked_t4;
 
     //// lock in t1
     let lock_amount_t1 = (Decimal::new(Uint128::from(locked_t1))
-        .div(Decimal::new(Uint128::from(total_share))))
+        )
     .mul(
         Decimal::new(Uint128::from(total_rebase_amount))
             .div(Decimal::new(Uint128::from(total_locked))),
@@ -943,7 +942,7 @@ pub fn calculate_rebase_reward(
         )?;
     }
     let lock_amount_t2 = (Decimal::new(Uint128::from(locked_t2))
-        .div(Decimal::new(Uint128::from(total_share))))
+        )
     .mul(
         Decimal::new(Uint128::from(total_rebase_amount))
             .div(Decimal::new(Uint128::from(total_locked))),
@@ -964,8 +963,7 @@ pub fn calculate_rebase_reward(
             LockingPeriod::T2,
         )?;
     }
-    let lock_amount_t3 = (Decimal::new(Uint128::from(locked_t3))
-        .div(Decimal::new(Uint128::from(total_share))))
+    let lock_amount_t3 = (Decimal::new(Uint128::from(locked_t3)))
     .mul(
         Decimal::new(Uint128::from(total_rebase_amount))
             .div(Decimal::new(Uint128::from(total_locked))),
@@ -986,8 +984,7 @@ pub fn calculate_rebase_reward(
             LockingPeriod::T3,
         )?;
     }
-    let lock_amount_t4 = (Decimal::new(Uint128::from(locked_t4))
-        .div(Decimal::new(Uint128::from(total_share))))
+    let lock_amount_t4 = (Decimal::new(Uint128::from(locked_t4)))
     .mul(
         Decimal::new(Uint128::from(total_rebase_amount))
             .div(Decimal::new(Uint128::from(total_locked))),
