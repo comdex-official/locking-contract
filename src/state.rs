@@ -79,6 +79,7 @@ pub struct State {
     pub foundation_percentage: Decimal,
     pub voting_period: u64,
     pub surplus_asset_id: u64,
+    pub min_lock_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -16,6 +16,7 @@ pub struct InstantiateMsg {
     pub surplus_asset_id: u64,
     pub emission: Emission,
     pub admin: Addr,
+    pub min_lock_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -46,6 +47,7 @@ pub enum ExecuteMsg {
     Lock {
         app_id: u64,
         locking_period: LockingPeriod,
+        recipient: Option<Addr>,
     },
     Withdraw {
         denom: String,

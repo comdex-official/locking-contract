@@ -39,7 +39,7 @@ pub fn instantiate(
         .addr_validate(&msg.vesting_contract.clone().into_string())?;
     deps.api.addr_validate(&msg.admin.clone().into_string())?;
     map_validate(deps.api, &msg.foundation_addr)?;
-    query_app_exists(deps.as_ref(), msg.emission.app_id)?;
+    //query_app_exists(deps.as_ref(), msg.emission.app_id)?;
     let mut foundation_addr_unique = msg.foundation_addr.clone();
     foundation_addr_unique.dedup();
     let state = State {
@@ -53,6 +53,7 @@ pub fn instantiate(
         foundation_percentage: msg.foundation_percentage,
         surplus_asset_id: msg.surplus_asset_id,
         voting_period: msg.voting_period,
+        min_lock_amount: msg.min_lock_amount,
     };
 
     if msg.foundation_percentage > Decimal::one() {
@@ -60,9 +61,9 @@ pub fn instantiate(
             val: "Foundation Emission percentage cannot be greater than 100 %".to_string(),
         });
     }
-    if msg.emission.rewards_pending != 0 {
+    if msg.emission.rewards_pending == 0 {
         return Err(ContractError::CustomError {
-            val: "Pending rewards should be zero %".to_string(),
+            val: "Pending rewards should be not be zero %".to_string(),
         });
     }
     if msg.emission.distributed_rewards != 0 {
@@ -105,18 +106,73 @@ pub fn execute(
             app_id,
             proposal_id,
             extended_pair,
-        } => vote_proposal(deps, env, info, app_id, proposal_id, extended_pair),
-        ExecuteMsg::RaiseProposal { app_id } => raise_proposal(deps, env, info, app_id),
+        } => {
+            let app_response = query_app_exists(deps.as_ref(), app_id)?;
+
+            //// get gov token denom for app
+            let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
+
+            if gov_token_denom.is_empty() || app_response.gov_token_id == 0 {
+                return Err(ContractError::CustomError {
+                    val: "Gov token not found for the app".to_string(),
+                });
+            }
+            vote_proposal(
+                deps,
+                env,
+                info,
+                app_id,
+                proposal_id,
+                extended_pair,
+                gov_token_denom,
+            )
+        }
+        ExecuteMsg::RaiseProposal { app_id } => {
+            //check if app exist
+            query_app_exists(deps.as_ref(), app_id)?;
+            ////get ext pairs vec from app
+            let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
+
+            raise_proposal(deps, env, info, app_id, ext_pairs)
+        }
         ExecuteMsg::Bribe {
             proposal_id,
             extended_pair,
-        } => bribe_proposal(deps, env, info, proposal_id, extended_pair),
+        } => {
+            // CHECK IF BRIBE ASSET EXISTS ON-CHAIN
+            let bribe_coin = info.funds[0].clone();
+            let found = query_whitelisted_asset(deps.as_ref(), bribe_coin.denom.clone())?;
+            if !found {
+                return Err(ContractError::CustomError {
+                    val: String::from("Asset not whitelisted on chain"),
+                });
+            }
+
+            bribe_proposal(deps, env, info, proposal_id, extended_pair, bribe_coin)
+        }
         ExecuteMsg::ClaimReward { app_id } => claim_rewards(deps, env, info, app_id),
         ExecuteMsg::Emission { proposal_id } => emission(deps, env, info, proposal_id),
         ExecuteMsg::Lock {
             app_id,
             locking_period,
-        } => handle_lock_nft(deps, env, info, app_id, locking_period),
+            recipient,
+        } => {
+            let app_response = query_app_exists(deps.as_ref(), app_id)?;
+            let gov_token_id = app_response.gov_token_id;
+            let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
+            if gov_token_denom.is_empty() || gov_token_id == 0 {
+                return Err(ContractError::CustomError {
+                    val: "Gov token not found".to_string(),
+                });
+            }
+
+            if info.funds[0].denom != gov_token_denom {
+                return Err(ContractError::CustomError {
+                    val: "Wrong Deposit token".to_string(),
+                });
+            }
+            handle_lock_nft(deps, env, info, app_id, locking_period, recipient)
+        }
         ExecuteMsg::Withdraw { denom } => handle_withdraw(deps, env, info, denom),
         ExecuteMsg::Transfer {
             recipient,
@@ -142,7 +198,7 @@ pub fn emission_foundation(
     ADMIN.assert_admin(deps.as_ref(), &info.sender)?;
     //check if active proposal
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
-    // check emission already compluted and executed
+    // check emission already computed and executed
     if !proposal.emission_completed {
         return Err(ContractError::CustomError {
             val: "Emission calculation did not take place to initiate foundation calculation"
@@ -150,7 +206,13 @@ pub fn emission_foundation(
         });
     }
 
-    //check if foundation emission has not taken plase for the proposal
+    if !info.funds.is_empty() {
+        return Err(ContractError::CustomError {
+            val: "Funds not accepted".to_string(),
+        });
+    }
+
+    //check if foundation emission has not taken place for the proposal
     if proposal.foundation_emission_completed {
         return Err(ContractError::CustomError {
             val: "Emission already distributed".to_string(),
@@ -193,7 +255,11 @@ fn lock_funds(
     locking_period: LockingPeriod,
 ) -> Result<(), ContractError> {
     let mut state = STATE.load(deps.storage)?;
-
+    if state.min_lock_amount > funds.amount {
+        return Err(ContractError::CustomError {
+            val: "Lock amount less than minimum lock amount".to_string(),
+        });
+    }
     // Load the locking period and weight
     let PeriodWeight { period, weight } = get_period(state.clone(), locking_period.clone())?;
 
@@ -253,6 +319,7 @@ pub fn handle_lock_nft(
     info: MessageInfo,
     app_id: u64,
     locking_period: LockingPeriod,
+    recipient: Option<Addr>,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     // Only allow a single denomination
     if info.funds.is_empty() {
@@ -266,29 +333,27 @@ pub fn handle_lock_nft(
     if info.funds[0].amount.is_zero() {
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
-
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
-    let gov_token_id = app_response.gov_token_id;
-    let gov_token_denom = query_get_asset_data(deps.as_ref(), gov_token_id)?;
-    if gov_token_denom.is_empty() || gov_token_id == 0 {
-        return Err(ContractError::CustomError {
-            val: "Gov token not found".to_string(),
-        });
+    if let Some { .. } = recipient {
+        deps.api
+            .addr_validate(recipient.clone().unwrap().as_str())?;
+        lock_funds(
+            deps,
+            env,
+            app_id,
+            recipient.unwrap(),
+            info.funds[0].clone(),
+            locking_period,
+        )?;
+    } else {
+        lock_funds(
+            deps,
+            env,
+            app_id,
+            info.sender.clone(),
+            info.funds[0].clone(),
+            locking_period,
+        )?;
     }
-
-    if info.funds[0].denom != gov_token_denom {
-        return Err(ContractError::CustomError {
-            val: "Wrong Deposit token".to_string(),
-        });
-    }
-    lock_funds(
-        deps,
-        env,
-        app_id,
-        info.sender.clone(),
-        info.funds[0].clone(),
-        locking_period,
-    )?;
 
     Ok(Response::new()
         .add_attribute("action", "lock")
@@ -331,7 +396,7 @@ fn create_vtoken(
     })
 }
 
-/// Update the SUPPLY map for the toal supply for vtokens and the corresponding
+/// Update the SUPPLY map for the total supply for vtokens and the corresponding
 /// tokens locked.
 fn update_denom_supply(
     storage: &mut dyn Storage,
@@ -398,7 +463,7 @@ pub fn handle_withdraw(
 
     let mut vtokens_denom = vtokens.unwrap();
 
-    // Retrive unlocked tokens with the given locking period
+    // Retrieve unlocked tokens with the given locking period
     let vtokens: Vec<(usize, &Vtoken)> = vtokens_denom
         .iter()
         .enumerate()
@@ -485,7 +550,7 @@ pub fn handle_transfer(
     }
     let recipient = deps.api.addr_validate(&recipient)?;
 
-    // Load the sender denom that needs to be transfered
+    // Load the sender denom that needs to be transferred
     let sender_vtokens = VTOKENS.may_load(deps.storage, (info.sender.clone(), &denom))?;
 
     if sender_vtokens.is_none() {
@@ -590,6 +655,7 @@ pub fn bribe_proposal(
     info: MessageInfo,
     proposal_id: u64,
     extended_pair: u64,
+    bribe_coin: Coin,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //check if active proposal
     let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
@@ -626,15 +692,6 @@ pub fn bribe_proposal(
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
 
-    // CHECK IF BRIBE ASSET EXISTS ON-CHAIN
-    let bribe_coin = info.funds[0].clone();
-    let found = query_whitelisted_asset(deps.as_ref(), bribe_coin.denom.clone())?;
-    if !found {
-        return Err(ContractError::CustomError {
-            val: String::from("Asset not whitelisted on chain"),
-        });
-    }
-
     // UPDATE BRIBE FOR PROPOSAL (IF EXISTS THEN UPDATE ELSE APPEND)
     let mut existing_bribes =
         match BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposal_id, extended_pair))? {
@@ -667,6 +724,9 @@ pub fn claim_rewards(
     info: MessageInfo,
     app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    if !info.funds.is_empty() {
+        return Err(ContractError::FundsNotAllowed {});
+    }
     //Check active proposal
 
     let max_proposal_claimed = MAXPROPOSALCLAIMED
@@ -695,7 +755,7 @@ pub fn claim_rewards(
         all_proposals.clone(),
         app_id,
     )?;
-    
+
     if !bribe_coins.is_empty() {
         if !surplus_share.amount.is_zero() {
             for coin1 in bribe_coins.iter_mut() {
@@ -799,6 +859,9 @@ pub fn calculate_rebase_reward(
     proposal_id: u64,
     app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    if !info.funds.is_empty() {
+        return Err(ContractError::FundsNotAllowed {});
+    }
     let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
     if !proposal.emission_completed {
         return Err(ContractError::CustomError {
@@ -1093,9 +1156,9 @@ pub fn emission(
     let mut emission = EMISSION.load(deps.storage, proposal.app_id)?;
 
     //// CALCULATE EFFECTIVE EMISSION = (REWARD_PENDING*EMISSION RATE)*(1-PERCENTAGE_LOCKED)
-    let reward_emision = Uint128::from(emission.rewards_pending) * emission.emission_rate;
-    let effective_emission = reward_emision.mul(Decimal::one() - percentage_locked);
-    // mint and distribue to vault owner  based vote portion
+    let reward_emission = Uint128::from(emission.rewards_pending) * emission.emission_rate;
+    let effective_emission = reward_emission.mul(Decimal::one() - percentage_locked);
+    // mint and distribute to vault owner  based vote portion
     let ext_pair = proposal.extended_pair.clone();
     let mut votes: Vec<Uint128> = vec![];
     let mut total_vote: Uint128 = Uint128::zero();
@@ -1117,10 +1180,10 @@ pub fn emission(
     // update effective emission
 
     //// UPDATE REBASE AMOUNT
-    proposal.rebase_distributed = (reward_emision.mul(percentage_locked)).u128();
+    proposal.rebase_distributed = (reward_emission.mul(percentage_locked)).u128();
     //// EMISSION Data Update
-    emission.rewards_pending -= reward_emision.u128();
-    emission.distributed_rewards += reward_emision.u128();
+    emission.rewards_pending -= reward_emission.u128();
+    emission.distributed_rewards += reward_emission.u128();
 
     let surplus = query_surplus_reward(deps.as_ref(), app_id, state.surplus_asset_id)?;
     proposal.total_surplus = surplus.clone();
@@ -1176,6 +1239,7 @@ pub fn vote_proposal(
     app_id: u64,
     proposal_id: u64,
     extended_pair: u64,
+    gov_token_denom: String,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     if ADMIN.is_admin(deps.as_ref(), &info.sender)? {
         return Err(ContractError::CustomError {
@@ -1194,18 +1258,6 @@ pub fn vote_proposal(
     if proposal.voting_end_time < env.block.time {
         return Err(ContractError::CustomError {
             val: "Proposal Voting Period Ended".to_string(),
-        });
-    }
-
-    //// get App Data
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
-
-    //// get gov token denom for app
-    let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
-
-    if gov_token_denom.is_empty() || app_response.gov_token_id == 0 {
-        return Err(ContractError::CustomError {
-            val: "Gov token not found for the app".to_string(),
         });
     }
 
@@ -1335,6 +1387,7 @@ pub fn raise_proposal(
     env: Env,
     info: MessageInfo,
     app_id: u64,
+    ext_pairs: Vec<u64>,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //// only admin can execute
     ADMIN.assert_admin(deps.as_ref(), &info.sender)?;
@@ -1343,10 +1396,6 @@ pub fn raise_proposal(
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
     }
-    //check if app exist
-    query_app_exists(deps.as_ref(), app_id)?;
-    ////get ext pairs vec from app
-    let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
 
     //// No proposal
     if ext_pairs.is_empty() {
@@ -1388,7 +1437,7 @@ pub fn raise_proposal(
         total_surplus: Coin {
             amount: Uint128::from(0_u32),
             denom: "nodenom".to_string(),
-        }, // unintialized dummy token
+        }, // initialized dummy token
         height: env.block.height,          // current block height of token,
     };
     let mut current_proposal = PROPOSALCOUNT.load(deps.storage).unwrap_or(0);
@@ -1482,7 +1531,6 @@ mod tests {
     use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError};
 
     const DENOM: &str = "TKN";
-
     /// Returns default InstantiateMsg with each value in seconds.
     /// - t1 is 1 week (7*24*60*60), similarly, t2 is 2 weeks, t3 is 3 weeks
     /// and t4 is 4 weeks.
@@ -1506,7 +1554,7 @@ mod tests {
             },
             voting_period: 30000,
             vesting_contract: Addr::unchecked("vesting_contract"),
-            foundation_addr: vec![],
+            foundation_addr: vec!["fd1".to_ascii_lowercase(), "fd2".to_ascii_lowercase()],
             foundation_percentage: Decimal::percent(2),
             surplus_asset_id: 3,
             emission: Emission {
@@ -1517,6 +1565,7 @@ mod tests {
                 distributed_rewards: 0,
             },
             admin: Addr::unchecked("admin"),
+            min_lock_amount: Uint128::from(1 as u128),
         }
     }
 
@@ -1556,15 +1605,13 @@ mod tests {
         let imsg = init_msg();
         instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
 
-        let msg = ExecuteMsg::Lock {
-            app_id: 12,
-            locking_period: LockingPeriod::T1,
-        };
-
         // Successful execution
         let info = mock_info("user1", &coins(100, DENOM.to_string()));
 
-        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+        //let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+        let res =
+            handle_lock_nft(deps.as_mut(), env.clone(), info, 1, LockingPeriod::T1, None).unwrap();
+
         assert_eq!(res.messages.len(), 0);
         assert_eq!(res.attributes.len(), 2);
 
@@ -1581,599 +1628,1048 @@ mod tests {
         assert_eq!(supply.vtoken, 25u128);
     }
 
-
-
-
-    // #[test]
-    // fn lock_different_denom_and_time_period() {
-    //     // mock values
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("sender", &coins(0, DENOM.to_string()));
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     let info = mock_info("owner", &coins(100, "DNM1".to_string()));
-    //     let owner_addr = Addr::unchecked("owner");
-
-    //     // Create a new entry for DENOM in nft
-    //     handle_lock_nft(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info.clone(),
-    //         10,
-    //         LockingPeriod::T1,
-    //     )
-    //     .unwrap();
-
-    //     let info = mock_info("owner", &coins(100, "DNM2".to_string()));
-    //     handle_lock_nft(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info.clone(),
-    //         10,
-    //         LockingPeriod::T2,
-    //     )
-    //     .unwrap();
-
-    //     // Check correct update in TOKENS
-    //     let nft = TOKENS
-    //         .load(deps.as_ref().storage, owner_addr.clone())
-    //         .unwrap();
-    //     assert_eq!(nft.vtokens.len(), 2);
-    //     assert_eq!(nft.vtokens[0].token.denom, "DNM1".to_string());
-    //     assert_eq!(nft.vtokens[0].vtoken.denom, "vDNM1".to_string());
-    //     assert_eq!(nft.vtokens[0].token.amount.u128(), 100u128);
-    //     assert_eq!(nft.vtokens[0].vtoken.amount.u128(), 25u128);
-    //     assert_eq!(nft.vtokens[0].start_time, env.block.time);
-    //     assert_eq!(
-    //         nft.vtokens[0].end_time,
-    //         env.block.time.plus_seconds(imsg.t1.period)
-    //     );
-    //     assert_eq!(nft.vtokens[0].period, LockingPeriod::T1);
-    //     assert_eq!(nft.vtokens[0].status, Status::Locked);
-
-    //     assert_eq!(nft.vtokens[1].token.denom, "DNM2".to_string());
-    //     assert_eq!(nft.vtokens[1].vtoken.denom, "vDNM2".to_string());
-    //     assert_eq!(nft.vtokens[1].token.amount.u128(), 100u128);
-    //     assert_eq!(nft.vtokens[1].vtoken.amount.u128(), 50u128);
-    //     assert_eq!(nft.vtokens[1].start_time, env.block.time);
-    //     assert_eq!(
-    //         nft.vtokens[1].end_time,
-    //         env.block.time.plus_seconds(imsg.t2.period)
-    //     );
-    //     assert_eq!(nft.vtokens[1].period, LockingPeriod::T2);
-    //     assert_eq!(nft.vtokens[1].status, Status::Locked);
-
-    //     // Check correct update in SUPPLY
-    //     let supply = SUPPLY.load(deps.as_ref().storage, "DNM1").unwrap();
-    //     assert_eq!(supply.token, 100u128);
-    //     assert_eq!(supply.vtoken, 25u128);
-
-    //     let supply = SUPPLY.load(deps.as_ref().storage, "DNM2").unwrap();
-    //     assert_eq!(supply.token, 100u128);
-    //     assert_eq!(supply.vtoken, 50u128);
-    // }
-
-    // #[test]
-    // fn lock_same_denom_and_time_period() {
-    //     // mock values
-    //     let mut deps = mock_dependencies();
-    //     let mut env = mock_env();
-    //     let info = mock_info("sender", &[]);
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     let info = mock_info("owner", &coins(100, DENOM.to_string()));
-    //     let owner_addr = Addr::unchecked("owner");
-
-    //     // Create a new entry for DENOM in nft
-    //     handle_lock_nft(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info.clone(),
-    //         10,
-    //         LockingPeriod::T1,
-    //     )
-    //     .unwrap();
-
-    //     // forward the time, inside 1 week
-    //     let old_start_time = env.block.time;
-    //     env.block.time = env.block.time.plus_seconds(100_000);
-
-    //     let info = mock_info("owner", &coins(100, DENOM.to_string()));
-    //     handle_lock_nft(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info.clone(),
-    //         10,
-    //         LockingPeriod::T1,
-    //     )
-    //     .unwrap();
-
-    //     // Check correct updation in nft
-    //     let nft = TOKENS
-    //         .load(deps.as_ref().storage, owner_addr.clone())
-    //         .unwrap();
-    //     assert_eq!(nft.vtokens.len(), 2);
-    //     assert_eq!(nft.vtokens[0].token.amount.u128(), 100u128);
-    //     assert_eq!(nft.vtokens[0].vtoken.amount.u128(), 25u128);
-    //     assert_eq!(nft.vtokens[0].start_time, old_start_time);
-    //     assert_eq!(
-    //         nft.vtokens[0].end_time,
-    //         old_start_time.plus_seconds(imsg.t1.period)
-    //     );
-    //     assert_eq!(nft.vtokens[0].period, LockingPeriod::T1);
-    //     assert_eq!(nft.vtokens[0].status, Status::Locked);
-
-    //     // Check correct update in SUPPLY
-    //     let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
-    //     assert_eq!(supply.vtoken, 50u128);
-    //     assert_eq!(supply.token, 200u128);
-    // }
-
-    // #[test]
-    // fn lock_same_denom_diff_time_period() {
-    //     // mock values
-    //     let mut deps = mock_dependencies();
-    //     let mut env = mock_env();
-    //     let info = mock_info("sender", &coins(0, DENOM.to_string()));
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     let info = mock_info("owner", &coins(100, DENOM.to_string()));
-    //     let owner_addr = Addr::unchecked("owner");
-
-    //     // Create a new entry for DENOM in nft
-    //     handle_lock_nft(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info.clone(),
-    //         10,
-    //         LockingPeriod::T1,
-    //     )
-    //     .unwrap();
-
-    //     // forward the time, inside 1 week
-    //     env.block.time = env.block.time.plus_seconds(100_000);
-
-    //     // Lock for new time period
-    //     handle_lock_nft(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info.clone(),
-    //         10,
-    //         LockingPeriod::T2,
-    //     )
-    //     .unwrap();
-
-    //     // Check correct updation in nft
-    //     let nft = TOKENS
-    //         .load(deps.as_ref().storage, owner_addr.clone())
-    //         .unwrap();
-    //     assert_eq!(nft.vtokens.len(), 2);
-    //     assert_eq!(nft.vtokens[0].token.amount.u128(), 100u128);
-    //     assert_eq!(nft.vtokens[0].vtoken.amount.u128(), 25u128);
-    //     assert_eq!(nft.vtokens[1].token.amount.u128(), 100u128);
-    //     assert_eq!(nft.vtokens[1].vtoken.amount.u128(), 50u128);
-    //     assert_eq!(nft.vtokens[1].start_time, env.block.time);
-    //     assert_eq!(
-    //         nft.vtokens[1].end_time,
-    //         env.block.time.plus_seconds(imsg.t2.period)
-    //     );
-    //     assert_eq!(nft.vtokens[0].period, LockingPeriod::T1);
-    //     assert_eq!(nft.vtokens[0].status, Status::Locked);
-    //     assert_eq!(nft.vtokens[1].period, LockingPeriod::T2);
-    //     assert_eq!(nft.vtokens[1].status, Status::Locked);
-
-    //     // Check correct update in SUPPLY
-    //     let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
-    //     assert_eq!(supply.token, 200u128);
-    //     assert_eq!(supply.vtoken, 75u128);
-    // }
-
-    // #[test]
-    // fn lock_zero_transfer() {
-    //     // mock values
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("sender", &coins(0, DENOM.to_string()));
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     // This should throw an error because the amount is zero
-    //     let res = handle_lock_nft(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info.clone(),
-    //         10,
-    //         LockingPeriod::T1,
-    //     )
-    //     .unwrap_err();
-    //     match res {
-    //         ContractError::InsufficientFunds { .. } => {}
-    //         e => panic!("{:?}", e),
-    //     };
-    // }
-
-    // #[test]
-    // fn withdraw_basic_functionality() {
-    //     // mock values
-    //     let mut deps = mock_dependencies();
-    //     let mut env = mock_env();
-    //     let info = mock_info("sender", &[]);
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     // Lock tokens
-    //     let msg = ExecuteMsg::Lock {
-    //         app_id: 12,
-    //         locking_period: LockingPeriod::T1,
-    //     };
-
-    //     let owner = Addr::unchecked("owner");
-    //     let info = mock_info("owner", &coins(100, DENOM.to_string()));
-
-    //     let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
-
-    //     env.block.time = env.block.time.plus_seconds(imsg.t1.period + 1u64);
-
-    //     // Withdrawing 10 Tokens
-    //     let info = mock_info("owner", &[]);
-    //     let res =
-    //         handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string()).unwrap();
-    //     assert_eq!(res.messages.len(), 1);
-    //     assert_eq!(res.attributes.len(), 2);
-    //     assert_eq!(
-    //         res.messages[0].msg,
-    //         CosmosMsg::Bank(BankMsg::Send {
-    //             to_address: info.sender.to_string(),
-    //             amount: vec![coin(100, DENOM.to_string())]
-    //         })
-    //     );
-
-    //     // Just a check if the order matters with Decimal
-    //     let vtoken_balance1 = Uint128::from(90u64) * imsg.t1.weight;
-    //     let vtoken_balance2 = imsg.t1.weight * Uint128::from(90u64);
-    //     assert_eq!(vtoken_balance1, vtoken_balance2);
-
-    //     // Check correct update in VTOKENS
-    //     let _vtoken = VTOKENS
-    //         .load(&deps.storage, (info.sender.clone(), DENOM))
-    //         .unwrap_err();
-    //     // assert_eq!(vtoken.len(), 1);
-    //     // assert_eq!(vtoken[0].token.amount.u128(), 90u128);
-    //     // let vtoken_balance = Uint128::from(25u64).sub(Uint128::from(10u64) * imsg.t1.weight);
-    //     // assert_eq!(vtoken[0].vtoken.amount.u128(), vtoken_balance.u128());
-    //     // assert_eq!(vtoken[0].status, Status::Unlocked);
-
-    //     // Check correct update in nft
-    //     let nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
-    //     assert_eq!(nft.vtokens.len(), 0);
-    //     // assert_eq!(nft.vtokens[0].token.amount.u128(), 90u128);
-    //     // assert_eq!(nft.vtokens[0].vtoken.amount.u128(), vtoken_balance.u128());
-    //     // assert_eq!(nft.vtokens[0].status, Status::Unlocked);
-    // }
-
-    // #[test]
-    // fn withdraw_no_vtokens() {
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("sender", &[]);
-
-    //     let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
-    //         .unwrap_err();
-    //     match res {
-    //         ContractError::NotFound { .. } => {}
-    //         e => panic!("{:?}", e),
-    //     };
-    // }
-
-    // #[test]
-    // fn withdraw_not_unlocked() {
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("owner", &[]);
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     // Lock tokens
-    //     let msg = ExecuteMsg::Lock {
-    //         app_id: 12,
-    //         locking_period: LockingPeriod::T1,
-    //     };
-    //     let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap_err();
-    //     match _res {
-    //         ContractError::InsufficientFunds { .. } => {}
-    //         e => panic!("{:?}", e),
-    //     };
-    //     let _owner = Addr::unchecked("owner");
-    //     let _info = mock_info("owner", &coins(100, DENOM.to_string()));
-    //     let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
-    //         .unwrap_err();
-    //     match res {
-    //         ContractError::NotFound { .. } => {}
-    //         e => panic!("{:?}", e),
-    //     };
-    // }
-
-    // #[test]
-    // fn withdraw_period_not_locked() {
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("owner", &[]);
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     // Lock tokens
-    //     let msg = ExecuteMsg::Lock {
-    //         app_id: 12,
-    //         locking_period: LockingPeriod::T1,
-    //     };
-
-    //     let _owner = Addr::unchecked("owner");
-    //     let info = mock_info("owner", &coins(100, DENOM.to_string()));
-    //     let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
-
-    //     let info = mock_info("owner", &[]);
-    //     let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
-    //         .unwrap_err();
-    //     match res {
-    //         ContractError::NotFound { .. } => {}
-    //         e => panic!("{:?}", e),
-    //     };
-    // }
-
-    // #[test]
-    // fn withdraw_denom_not_locked() {
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("owner", &[]);
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     // Lock tokens
-    //     let msg = ExecuteMsg::Lock {
-    //         app_id: 12,
-    //         locking_period: LockingPeriod::T1,
-    //     };
-
-    //     let _owner = Addr::unchecked("owner");
-    //     let info = mock_info("owner", &coins(100, DENOM.to_string()));
-    //     let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
-
-    //     let info = mock_info("owner", &[]);
-    //     let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), "DNM1".to_string())
-    //         .unwrap_err();
-    //     match res {
-    //         ContractError::NotFound { .. } => {}
-    //         e => panic!("{:?}", e),
-    //     };
-    // }
-
-    // #[test]
-    // fn transfer_to_new_user() {
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("owner", &[]);
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     // Lock tokens
-    //     let msg = ExecuteMsg::Lock {
-    //         app_id: 12,
-    //         locking_period: LockingPeriod::T1,
-    //     };
-
-    //     let owner = Addr::unchecked("owner");
-    //     let recipient = Addr::unchecked("recipient");
-
-    //     let info = mock_info("owner", &coins(100, DENOM.to_string()));
-    //     execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
-
-    //     let locked_vtokens = VTOKENS
-    //         .load(deps.as_ref().storage, (owner.clone(), DENOM))
-    //         .unwrap();
-
-    //     let msg = ExecuteMsg::Transfer {
-    //         recipent: recipient.to_string(),
-    //         locking_period: LockingPeriod::T1,
-    //         denom: DENOM.to_string(),
-    //     };
-
-    //     let info = mock_info(owner.as_str(), &[]);
-    //     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
-    //     assert_eq!(res.messages.len(), 0);
-    //     assert_eq!(res.attributes.len(), 3);
-
-    //     // Check correct update in sender vtokens
-    //     let res = VTOKENS
-    //         .load(deps.as_ref().storage, (owner.clone(), DENOM))
-    //         .unwrap_err();
-    //     match res {
-    //         StdError::NotFound { .. } => {}
-    //         e => panic!("{:?}", e),
-    //     }
-
-    //     // Check correct update in recipient vtokens
-    //     let res = VTOKENS
-    //         .load(deps.as_ref().storage, (recipient.clone(), DENOM))
-    //         .unwrap();
-    //     assert_eq!(res.len(), 1);
-    //     assert_eq!(res[0], locked_vtokens[0]);
-
-    //     // Check correct update in sender nft
-    //     let sender_nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
-    //     assert_eq!(sender_nft.vtokens.len(), 0);
-
-    //     // Check correct update in recipient nft
-    //     let recipient_nft = TOKENS
-    //         .load(deps.as_ref().storage, recipient.clone())
-    //         .unwrap();
-    //     assert_eq!(recipient_nft.owner, recipient.clone());
-    //     assert_eq!(recipient_nft.vtokens.len(), 1);
-    //     assert_eq!(recipient_nft.vtokens[0], locked_vtokens[0]);
-    // }
-
-    // #[test]
-    // fn transfer_different_denom() {
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("owner", &[]);
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
-
-    //     let owner = Addr::unchecked("owner");
-    //     let recipient = Addr::unchecked("recipient");
-
-    //     let denom1 = "DNM1";
-    //     let denom2 = "DNM2";
-
-    //     // Create token for recipient
-    //     let info = mock_info("recipient", &coins(100, denom2.to_string()));
-    //     handle_lock_nft(deps.as_mut(), env.clone(), info, 12, LockingPeriod::T1).unwrap();
-
-    //     // Create tokens for owner == sender
-    //     let info = mock_info("owner", &coins(100, denom1.to_string()));
-    //     handle_lock_nft(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info.clone(),
-    //         12,
-    //         LockingPeriod::T1,
-    //     )
-    //     .unwrap();
-
-    //     // create a copy of owner's vtoken to compare and check if the recipient's
-    //     // vtoken is the same.
-    //     let locked_vtokens = VTOKENS
-    //         .load(deps.as_ref().storage, (owner.clone(), denom1))
-    //         .unwrap();
-
-    //     let msg = ExecuteMsg::Transfer {
-    //         recipient: recipient.to_string(),
-    //         locking_period: LockingPeriod::T1,
-    //         denom: denom1.to_string(),
-    //     };
-
-    //     let info = mock_info(owner.as_str(), &[]);
-    //     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
-    //     assert_eq!(res.messages.len(), 0);
-    //     assert_eq!(res.attributes.len(), 3);
-
-    //     // Check correct update in sender vtokens
-    //     let res = VTOKENS
-    //         .load(deps.as_ref().storage, (owner.clone(), denom1))
-    //         .unwrap_err();
-    //     match res {
-    //         StdError::NotFound { .. } => {}
-    //         e => panic!("{:?}", e),
-    //     }
-
-    //     // Check correct update in recipient vtokens
-    //     {
-    //         let res = VTOKENS
-    //             .load(deps.as_ref().storage, (recipient.clone(), denom1))
-    //             .unwrap();
-    //         assert_eq!(res.len(), 1);
-    //         assert_eq!(res[0], locked_vtokens[0]);
-
-    //         let res = VTOKENS
-    //             .load(deps.as_ref().storage, (recipient.clone(), denom2))
-    //             .unwrap();
-    //         assert_eq!(res.len(), 1);
-    //         assert_eq!(res[0].token.amount.u128(), 100);
-    //         assert_eq!(res[0].token.denom, denom2.to_string());
-    //     }
-
-    //     // Check correct update in sender nft
-    //     let sender_nft = TOKENS.load(deps.as_ref().storage, owner.clone()).unwrap();
-    //     assert_eq!(sender_nft.vtokens.len(), 0);
-
-    //     // Check correct update in recipient nft
-    //     let recipient_nft = TOKENS
-    //         .load(deps.as_ref().storage, recipient.clone())
-    //         .unwrap();
-    //     assert_eq!(recipient_nft.owner, recipient.clone());
-    //     assert_eq!(recipient_nft.vtokens.len(), 2);
-    //     assert_eq!(recipient_nft.vtokens[0].token.amount.u128(), 100);
-    //     assert_eq!(recipient_nft.vtokens[0].token.denom, denom2.to_string());
-    //     assert_eq!(recipient_nft.vtokens[1], locked_vtokens[0]);
-    // }
-
-    // #[test]
-    // fn transfer_same_denom() {
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("admin", &[]);
-
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
-
-    //     let sender = Addr::unchecked("sender");
-    //     let recipient = Addr::unchecked("recipient");
-
-    //     // Lock tokens for sender
-    //     let info = mock_info(sender.as_str(), &coins(1000, DENOM.to_string()));
-    //     handle_lock_nft(deps.as_mut(), env.clone(), info, 12, LockingPeriod::T1).unwrap();
-
-    //     // Lock tokens for recipient
-    //     let info = mock_info(recipient.as_str(), &coins(1000, DENOM.to_string()));
-    //     handle_lock_nft(deps.as_mut(), env.clone(), info, 12, LockingPeriod::T1).unwrap();
-
-    //     // Transfer tokens to recipient
-    //     let info = mock_info(sender.as_str(), &[]);
-    //     handle_transfer(
-    //         deps.as_mut(),
-    //         env.clone(),
-    //         info,
-    //         recipient.to_string(),
-    //         LockingPeriod::T1,
-    //         DENOM.to_string(),
-    //     )
-    //     .unwrap();
-
-    //     // Check VTOKENS
-    //     VTOKENS
-    //         .load(deps.as_ref().storage, (sender.clone(), DENOM))
-    //         .unwrap_err();
-
-    //     let recipient_vtokens = VTOKENS
-    //         .load(deps.as_ref().storage, (recipient.clone(), DENOM))
-    //         .unwrap();
-    //     assert_eq!(recipient_vtokens.len(), 2);
-    //     assert_eq!(recipient_vtokens[0].token.amount.u128(), 1000);
-    //     assert_eq!(recipient_vtokens[0].token.denom, DENOM.to_string());
-    //     assert_eq!(recipient_vtokens[0].vtoken.amount.u128(), 250);
-    //     assert_eq!(recipient_vtokens[0].vtoken.denom, "vTKN".to_string());
-    //     assert_eq!(recipient_vtokens[0].start_time, env.block.time);
-    //     assert_eq!(
-    //         recipient_vtokens[0].end_time,
-    //         env.block.time.plus_seconds(imsg.t1.period)
-    //     );
-    //     assert_eq!(recipient_vtokens[1].token.amount.u128(), 1000);
-    //     assert_eq!(recipient_vtokens[1].vtoken.amount.u128(), 250);
-    // }
-
-    // #[test]
-    // fn raise_proposal() {
-    //     // Mock dependencies
-    //     let mut deps = mock_dependencies();
-    //     let env = mock_env();
-    //     let info = mock_info("sender", &[]);
-
-    //     // Initialize
-    //     let imsg = init_msg();
-    //     instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
-    // }
+    #[test]
+    fn lock_different_denom_and_time_period() {
+        // mock values
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &coins(0, DENOM.to_string()));
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        let info = mock_info("owner", &coins(100, "DNM1".to_string()));
+        let owner_addr = Addr::unchecked("owner");
+
+        // Create a new entry for DENOM in nft
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            10,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("owner", &coins(100, "DNM2".to_string()));
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            10,
+            LockingPeriod::T2,
+            None,
+        )
+        .unwrap();
+
+        // Check correct update in TOKENS
+
+        let nft = VTOKENS
+            .load(deps.as_ref().storage, (owner_addr.clone(), "DNM1"))
+            .unwrap();
+        let nft2 = VTOKENS
+            .load(deps.as_ref().storage, (owner_addr.clone(), "DNM2"))
+            .unwrap();
+
+        assert_eq!(nft.len(), 1);
+        assert_eq!(nft[0].token.denom, "DNM1".to_string());
+        assert_eq!(nft2[0].token.denom, "DNM2".to_string());
+
+        // Check correct update in SUPPLY
+        let supply = SUPPLY.load(deps.as_ref().storage, "DNM1").unwrap();
+        assert_eq!(supply.token, 100u128);
+        assert_eq!(supply.vtoken, 25u128);
+
+        let supply = SUPPLY.load(deps.as_ref().storage, "DNM2").unwrap();
+        assert_eq!(supply.token, 100u128);
+        assert_eq!(supply.vtoken, 50u128);
+    }
+
+    #[test]
+    fn lock_same_denom_and_time_period() {
+        // mock values
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        let owner_addr = Addr::unchecked("owner");
+
+        // Create a new entry for DENOM in nft
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            10,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // forward the time, inside 1 week
+        let old_start_time = env.block.time;
+        env.block.time = env.block.time.plus_seconds(100_000);
+
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            10,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // Check correct updating in nft
+        let nft = VTOKENS
+            .load(deps.as_ref().storage, (owner_addr.clone(), "TKN"))
+            .unwrap();
+
+        assert_eq!(nft.len(), 2);
+        assert_eq!(nft[0].token.amount.u128(), 100u128);
+        assert_eq!(nft[0].vtoken.amount.u128(), 25u128);
+        assert_eq!(nft[0].start_time, old_start_time);
+        assert_eq!(nft[0].end_time, old_start_time.plus_seconds(imsg.t1.period));
+        assert_eq!(nft[0].period, LockingPeriod::T1);
+        assert_eq!(nft[0].status, Status::Locked);
+
+        // Check correct update in SUPPLY
+        let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
+        assert_eq!(supply.vtoken, 50u128);
+        assert_eq!(supply.token, 200u128);
+    }
+
+    #[test]
+    fn lock_same_denom_diff_time_period() {
+        // mock values
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &coins(0, DENOM.to_string()));
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        let owner_addr = Addr::unchecked("owner");
+
+        // Create a new entry for DENOM in nft
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            10,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // forward the time, inside 1 week
+        env.block.time = env.block.time.plus_seconds(100_000);
+
+        // Lock for new time period
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            10,
+            LockingPeriod::T2,
+            None,
+        )
+        .unwrap();
+
+        // Check correct updating in nft
+        let nft = VTOKENS
+            .load(deps.as_ref().storage, (owner_addr.clone(), "TKN"))
+            .unwrap();
+
+        assert_eq!(nft.len(), 2);
+        assert_eq!(nft[0].token.amount.u128(), 100u128);
+        assert_eq!(nft[0].vtoken.amount.u128(), 25u128);
+        assert_eq!(nft[1].token.amount.u128(), 100u128);
+        assert_eq!(nft[1].vtoken.amount.u128(), 50u128);
+        assert_eq!(nft[1].start_time, env.block.time);
+        assert_eq!(nft[1].end_time, env.block.time.plus_seconds(imsg.t2.period));
+        assert_eq!(nft[0].period, LockingPeriod::T1);
+        assert_eq!(nft[0].status, Status::Locked);
+        assert_eq!(nft[1].period, LockingPeriod::T2);
+        assert_eq!(nft[1].status, Status::Locked);
+
+        // Check correct update in SUPPLY
+        let supply = SUPPLY.load(deps.as_ref().storage, &DENOM).unwrap();
+        assert_eq!(supply.token, 200u128);
+        assert_eq!(supply.vtoken, 75u128);
+    }
+
+    #[test]
+    fn lock_zero_transfer() {
+        // mock values
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &coins(0, DENOM.to_string()));
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        // This should throw an error because the amount is zero
+        let res = handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            10,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap_err();
+        match res {
+            ContractError::InsufficientFunds { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn withdraw_basic_functionality() {
+        // mock values
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        let _owner = Addr::unchecked("owner");
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+
+        let _res = handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        env.block.time = env.block.time.plus_seconds(imsg.t1.period + 1u64);
+
+        // Withdrawing 10 Tokens
+        let info = mock_info("owner", &[]);
+        let res =
+            handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string()).unwrap();
+        assert_eq!(res.messages.len(), 1);
+        assert_eq!(res.attributes.len(), 2);
+        assert_eq!(
+            res.messages[0].msg,
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: vec![coin(100, DENOM.to_string())]
+            })
+        );
+
+        // Just a check if the order matters with Decimal
+        let vtoken_balance1 = Uint128::from(90u64) * imsg.t1.weight;
+        let vtoken_balance2 = imsg.t1.weight * Uint128::from(90u64);
+        assert_eq!(vtoken_balance1, vtoken_balance2);
+    }
+
+    #[test]
+    fn withdraw_no_vtokens() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
+            .unwrap_err();
+        match res {
+            ContractError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn withdraw_not_unlocked() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        let res = handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap_err();
+        match res {
+            ContractError::InsufficientFunds { .. } => {}
+            e => panic!("{:?}", e),
+        };
+        let _owner = Addr::unchecked("owner");
+        let _info = mock_info("owner", &coins(100, DENOM.to_string()));
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
+            .unwrap_err();
+        match res {
+            ContractError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn withdraw_period_not_locked() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        let _owner = Addr::unchecked("owner");
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        let _res = handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("owner", &[]);
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), DENOM.to_string())
+            .unwrap_err();
+        match res {
+            ContractError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn withdraw_denom_not_locked() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        let _owner = Addr::unchecked("owner");
+        let info = mock_info("owner", &coins(100, DENOM.to_string()));
+        let _res = handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("owner", &[]);
+        let res = handle_withdraw(deps.as_mut(), env.clone(), info.clone(), "DNM1".to_string())
+            .unwrap_err();
+        match res {
+            ContractError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn transfer_different_denom() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("owner", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        let owner = Addr::unchecked("owner");
+        let recipient = Addr::unchecked("recipient");
+
+        let denom1 = "DNM1";
+        let denom2 = "DNM2";
+
+        // Create token for recipient
+        let info = mock_info("recipient", &coins(100, denom2.to_string()));
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            12,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // Create tokens for owner == sender
+        let info = mock_info("owner", &coins(100, denom1.to_string()));
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            12,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // create a copy of owner's vtoken to compare and check if the recipient's
+        // vtoken is the same.
+        let locked_vtokens = VTOKENS
+            .load(deps.as_ref().storage, (owner.clone(), denom1))
+            .unwrap();
+
+        let msg = ExecuteMsg::Transfer {
+            recipient: recipient.to_string(),
+            locking_period: LockingPeriod::T1,
+            denom: denom1.to_string(),
+        };
+
+        let info = mock_info(owner.as_str(), &[]);
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        assert_eq!(res.messages.len(), 0);
+        assert_eq!(res.attributes.len(), 3);
+
+        // Check correct update in sender vtokens
+        let res = VTOKENS
+            .load(deps.as_ref().storage, (owner.clone(), denom1))
+            .unwrap_err();
+        match res {
+            StdError::NotFound { .. } => {}
+            e => panic!("{:?}", e),
+        }
+
+        // Check correct update in recipient vtokens
+        {
+            let res = VTOKENS
+                .load(deps.as_ref().storage, (recipient.clone(), denom1))
+                .unwrap();
+            assert_eq!(res.len(), 1);
+            assert_eq!(res[0], locked_vtokens[0]);
+
+            let res = VTOKENS
+                .load(deps.as_ref().storage, (recipient.clone(), denom2))
+                .unwrap();
+            assert_eq!(res.len(), 1);
+            assert_eq!(res[0].token.amount.u128(), 100);
+            assert_eq!(res[0].token.denom, denom2.to_string());
+        }
+
+        // Check correct update in recipient nft
+        let recipient_nft = VTOKENS
+            .load(deps.as_ref().storage, (recipient.clone(), "DNM1"))
+            .unwrap();
+
+        assert_eq!(recipient_nft.len(), 1);
+        assert_eq!(recipient_nft[0].token.amount.u128(), 100);
+        assert_eq!(recipient_nft[0].token.denom, denom1.to_string());
+    }
+
+    #[test]
+    fn transfer_same_denom() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
+
+        let sender = Addr::unchecked("sender");
+        let recipient = Addr::unchecked("recipient");
+
+        // Lock tokens for sender
+        let info = mock_info(sender.as_str(), &coins(1000, DENOM.to_string()));
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            12,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // Lock tokens for recipient
+        let info = mock_info(recipient.as_str(), &coins(1000, DENOM.to_string()));
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            12,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        // Transfer tokens to recipient
+        let info = mock_info(sender.as_str(), &[]);
+        handle_transfer(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            recipient.to_string(),
+            LockingPeriod::T1,
+            DENOM.to_string(),
+        )
+        .unwrap();
+
+        // Check VTOKENS
+        VTOKENS
+            .load(deps.as_ref().storage, (sender.clone(), DENOM))
+            .unwrap_err();
+
+        let recipient_vtokens = VTOKENS
+            .load(deps.as_ref().storage, (recipient.clone(), DENOM))
+            .unwrap();
+        assert_eq!(recipient_vtokens.len(), 2);
+        assert_eq!(recipient_vtokens[0].token.amount.u128(), 1000);
+        assert_eq!(recipient_vtokens[0].token.denom, DENOM.to_string());
+        assert_eq!(recipient_vtokens[0].vtoken.amount.u128(), 250);
+        assert_eq!(recipient_vtokens[0].vtoken.denom, "vTKN".to_string());
+        assert_eq!(recipient_vtokens[0].start_time, env.block.time);
+        assert_eq!(
+            recipient_vtokens[0].end_time,
+            env.block.time.plus_seconds(imsg.t1.period)
+        );
+        assert_eq!(recipient_vtokens[1].token.amount.u128(), 1000);
+        assert_eq!(recipient_vtokens[1].vtoken.amount.u128(), 250);
+    }
+
+    #[test]
+    fn raise_init() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
+    }
+
+    #[test]
+    fn test_non_admin_proposal_error() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+        let res = raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap_err();
+        match res {
+            ContractError::Admin { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn proposal_successfully_set() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+        let _res = raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+        let current_proposal = APPCURRENTPROPOSAL.load(deps.as_ref().storage, 1).unwrap();
+        assert_eq!(current_proposal, 1);
+    }
+
+    #[test]
+    fn no_consecutive_proposals() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+        let _res =
+            raise_proposal(deps.as_mut(), env.clone(), info.clone(), 1, vec![1, 2, 3]).unwrap();
+        let res = raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap_err();
+        match res {
+            ContractError::CustomError { .. } => {}
+            e => panic!("{:?}", e),
+        };
+        let current_proposal = APPCURRENTPROPOSAL.load(deps.as_ref().storage, 1).unwrap();
+        assert_eq!(current_proposal, 1);
+    }
+
+    #[test]
+    fn no_pair_for_proposals() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("admin", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+        let res = raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![]).unwrap_err();
+        match res {
+            ContractError::CustomError { .. } => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn test_vote_proposal_without_locking() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        let _res = raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+
+        let info = mock_info("voter1", &[]);
+
+        let err = vote_proposal(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            1,
+            1,
+            DENOM.to_string(),
+        );
+        assert_eq!(
+            err,
+            Err(ContractError::CustomError {
+                val: "No tokens locked to perform voting on proposals".to_string()
+            })
+        );
+    }
+
+    #[test]
+
+    fn test_vote_proposal_with_wrong_extended_pair() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+
+        let info = mock_info("voter1", &[]);
+
+        let err = vote_proposal(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            1,
+            6,
+            DENOM.to_string(),
+        );
+        assert_eq!(
+            err,
+            Err(ContractError::CustomError {
+                val: "Invalid Extended pair".to_string()
+            })
+        );
+    }
+
+    #[test]
+
+    fn test_bribe_proposal() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+
+        let info = mock_info(
+            "voter1",
+            &[Coin {
+                amount: Uint128::from(200_u128),
+                denom: "bribe1".to_string(),
+            }],
+        );
+
+        bribe_proposal(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            1,
+            Coin {
+                amount: Uint128::from(200_u128),
+                denom: "bribe1".to_string(),
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+
+    fn test_bribe_proposal_wrong_pair() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+
+        let info = mock_info(
+            "voter1",
+            &[Coin {
+                amount: Uint128::from(200_u128),
+                denom: "bribe1".to_string(),
+            }],
+        );
+
+        let err = bribe_proposal(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            6,
+            Coin {
+                amount: Uint128::from(200_u128),
+                denom: "bribe1".to_string(),
+            },
+        );
+        assert_eq!(
+            err,
+            Err(ContractError::CustomError {
+                val: "Invalid Extended pair".to_string()
+            })
+        );
+    }
+
+    #[test]
+
+    fn test_bribe_proposal_multiple_denoms() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+
+        let info = mock_info(
+            "voter1",
+            &[
+                Coin {
+                    amount: Uint128::from(200_u128),
+                    denom: "bribe1".to_string(),
+                },
+                Coin {
+                    amount: Uint128::from(200_u128),
+                    denom: "bribe2".to_string(),
+                },
+            ],
+        );
+
+        let err = bribe_proposal(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            1,
+            Coin {
+                amount: Uint128::from(200_u128),
+                denom: "bribe1".to_string(),
+            },
+        );
+        assert_eq!(
+            err,
+            Err(ContractError::CustomError {
+                val: "Multiple denominations are not supported as yet.".to_string()
+            })
+        );
+    }
+
+    #[test]
+
+    fn test_foundation_emission_no_completed() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+
+        let info = mock_info(
+            "admin",
+            &[
+                Coin {
+                    amount: Uint128::from(200_u128),
+                    denom: "bribe1".to_string(),
+                },
+                Coin {
+                    amount: Uint128::from(200_u128),
+                    denom: "bribe2".to_string(),
+                },
+            ],
+        );
+
+        let err = emission_foundation(deps.as_mut(), env.clone(), info.clone(), 1);
+        assert_eq!(
+            err,
+            Err(ContractError::CustomError {
+                val: "Emission calculation did not take place to initiate foundation calculation"
+                    .to_string()
+            })
+        );
+    }
+
+    #[test]
+
+    fn test_foundation_emission_accept_no_fund() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+        let mut proposal = PROPOSAL.load(deps.as_ref().storage, 1).unwrap();
+        proposal.emission_completed = true;
+        proposal.foundation_distributed = 10000000000;
+        _ = PROPOSAL.save(deps.as_mut().storage, 1, &proposal);
+        let info = mock_info(
+            "admin",
+            &[
+                Coin {
+                    amount: Uint128::from(200_u128),
+                    denom: "bribe1".to_string(),
+                },
+                Coin {
+                    amount: Uint128::from(200_u128),
+                    denom: "bribe2".to_string(),
+                },
+            ],
+        );
+
+        let err = emission_foundation(deps.as_mut(), env.clone(), info.clone(), 1);
+        assert_eq!(
+            err,
+            Err(ContractError::CustomError {
+                val: "Funds not accepted".to_string()
+            })
+        );
+    }
+
+    #[test]
+
+    fn test_foundation_emission() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+        let mut proposal = PROPOSAL.load(deps.as_ref().storage, 1).unwrap();
+        proposal.emission_completed = true;
+        proposal.foundation_distributed = 10000000000;
+        _ = PROPOSAL.save(deps.as_mut().storage, 1, &proposal);
+        let info = mock_info("admin", &[]);
+
+        let _response = emission_foundation(deps.as_mut(), env.clone(), info.clone(), 1);
+    }
+
+    #[test]
+
+    fn test_bribe_reward() {
+        // Mock dependencies
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        let info = mock_info("voter1", &coins(100, DENOM.to_string()));
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        handle_lock_nft(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            LockingPeriod::T1,
+            None,
+        )
+        .unwrap();
+
+        let info = mock_info("admin", &[]);
+        raise_proposal(deps.as_mut(), env.clone(), info, 1, vec![1, 2, 3]).unwrap();
+        let mut proposal = PROPOSAL.load(deps.as_ref().storage, 1).unwrap();
+        proposal.emission_completed = true;
+        proposal.foundation_distributed = 10000000000;
+        _ = PROPOSAL.save(deps.as_mut().storage, 1, &proposal);
+        let info = mock_info(
+            "voter1",
+            &[Coin {
+                amount: Uint128::from(200_u128),
+                denom: "bribe1".to_string(),
+            }],
+        );
+
+        bribe_proposal(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            1,
+            1,
+            Coin {
+                amount: Uint128::from(200_u128),
+                denom: "bribe1".to_string(),
+            },
+        )
+        .unwrap();
+
+        let vote = Vote {
+            app_id: 1,
+            extended_pair: 1,
+            vote_weight: 200,
+        };
+        _ = VOTERSPROPOSAL.save(deps.as_mut().storage, (Addr::unchecked("voter1"), 1), &vote);
+        _ = PROPOSALVOTE.save(deps.as_mut().storage, (1, 1), &Uint128::from(500_u128));
+
+        let info = mock_info("voter1", &[]);
+
+        let response =
+            calculate_bribe_reward(deps.as_ref(), env.clone(), info.clone(), 0, vec![1], 1)
+                .unwrap();
+        assert_eq!(
+            response,
+            vec![Coin {
+                denom: "bribe1".to_ascii_lowercase(),
+                amount: Uint128::from(80_u128)
+            }]
+        );
+    }
 }
