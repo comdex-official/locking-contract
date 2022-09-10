@@ -182,10 +182,7 @@ pub fn execute(
         ExecuteMsg::FoundationRewards { proposal_id } => {
             emission_foundation(deps, env, info, proposal_id)
         }
-        ExecuteMsg::Rebase {
-            proposal_id,
-            app_id,
-        } => calculate_rebase_reward(deps, env, info, proposal_id, app_id),
+        ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
     }
 }
 
@@ -857,7 +854,6 @@ pub fn calculate_rebase_reward(
     env: Env,
     info: MessageInfo,
     proposal_id: u64,
-    app_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
@@ -879,7 +875,7 @@ pub fn calculate_rebase_reward(
     }
     let total_rebase_amount: u128 = proposal.rebase_distributed;
 
-    let app_response = query_app_exists(deps.as_ref(), app_id)?;
+    let app_response = query_app_exists(deps.as_ref(), proposal.app_id)?;
 
     let gov_token_denom = query_get_asset_data(deps.as_ref(), app_response.gov_token_id)?;
 
@@ -916,15 +912,11 @@ pub fn calculate_rebase_reward(
         }
     }
 
-
     //// lock in t1
-    let lock_amount_t1 = (Decimal::new(Uint128::from(locked_t1))
-        )
-    .mul(
-        Decimal::new(Uint128::from(total_rebase_amount))
-            .div(Decimal::new(Uint128::from(total_locked))),
-    )
-    .mul(Uint128::from(1_u128));
+    let lock_amount_t1 = Uint128::from(locked_t1).mul(Decimal::from_ratio(
+        Uint128::from(total_rebase_amount),
+        Uint128::from(total_locked),
+    ));
 
     if lock_amount_t1 != Uint128::zero() {
         let fund_t1 = Coin {
@@ -935,19 +927,16 @@ pub fn calculate_rebase_reward(
         lock_funds(
             deps.branch(),
             env.clone(),
-            app_id,
+            proposal.app_id,
             info.sender.clone(),
             fund_t1,
             LockingPeriod::T1,
         )?;
     }
-    let lock_amount_t2 = (Decimal::new(Uint128::from(locked_t2))
-        )
-    .mul(
-        Decimal::new(Uint128::from(total_rebase_amount))
-            .div(Decimal::new(Uint128::from(total_locked))),
-    )
-    .mul(Uint128::from(1_u128));
+    let lock_amount_t2 = Uint128::from(locked_t2).mul(Decimal::from_ratio(
+        Uint128::from(total_rebase_amount),
+        Uint128::from(total_locked),
+    ));
 
     if lock_amount_t2 != Uint128::zero() {
         let fund_t2 = Coin {
@@ -957,18 +946,16 @@ pub fn calculate_rebase_reward(
         lock_funds(
             deps.branch(),
             env.clone(),
-            app_id,
+            proposal.app_id,
             info.sender.clone(),
             fund_t2,
             LockingPeriod::T2,
         )?;
     }
-    let lock_amount_t3 = (Decimal::new(Uint128::from(locked_t3)))
-    .mul(
-        Decimal::new(Uint128::from(total_rebase_amount))
-            .div(Decimal::new(Uint128::from(total_locked))),
-    )
-    .mul(Uint128::from(1_u128));
+    let lock_amount_t3 = Uint128::from(locked_t3).mul(Decimal::from_ratio(
+        Uint128::from(total_rebase_amount),
+        Uint128::from(total_locked),
+    ));
 
     if lock_amount_t3 != Uint128::zero() {
         let fund_t3 = Coin {
@@ -978,18 +965,16 @@ pub fn calculate_rebase_reward(
         lock_funds(
             deps.branch(),
             env.clone(),
-            app_id,
+            proposal.app_id,
             info.sender.clone(),
             fund_t3,
             LockingPeriod::T3,
         )?;
     }
-    let lock_amount_t4 = (Decimal::new(Uint128::from(locked_t4)))
-    .mul(
-        Decimal::new(Uint128::from(total_rebase_amount))
-            .div(Decimal::new(Uint128::from(total_locked))),
-    )
-    .mul(Uint128::from(1_u128));
+    let lock_amount_t4 = Uint128::from(locked_t4).mul(Decimal::from_ratio(
+        Uint128::from(total_rebase_amount),
+        Uint128::from(total_locked),
+    ));
 
     if lock_amount_t4 != Uint128::zero() {
         let fund_t4 = Coin {
@@ -999,7 +984,7 @@ pub fn calculate_rebase_reward(
         lock_funds(
             deps.branch(),
             env,
-            app_id,
+            proposal.app_id,
             info.sender.clone(),
             fund_t4,
             LockingPeriod::T4,
@@ -2668,5 +2653,36 @@ mod tests {
                 amount: Uint128::from(80_u128)
             }]
         );
+    }
+
+    #[test]
+
+    fn test_rebase_formula() {
+        let total_locked: u128 = 10000_u128;
+
+        let my_locked: u128 = 222_u128;
+
+        let rebase_amount: u128 = 20000_u128;
+
+        let lock_amount_t1 = Uint128::from(my_locked).mul(Decimal::from_ratio(
+            Uint128::from(rebase_amount),
+            Uint128::from(total_locked),
+        ));
+
+        assert_eq!(lock_amount_t1, Uint128::new(444_u128));
+    }
+
+    #[test]
+
+    fn test_bribe_formula() {
+        let vote_weight: u128 = 30_u128;
+
+        let total_vote: u128 = 100_u128;
+
+        let claimable_amount = (Decimal::new(Uint128::from(vote_weight))
+            .div(Decimal::new(Uint128::from(total_vote))))
+        .mul(Uint128::from(500_u128));
+
+        assert_eq!(claimable_amount, Uint128::new(150_u128));
     }
 }

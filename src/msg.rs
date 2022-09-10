@@ -42,7 +42,6 @@ pub enum ExecuteMsg {
     },
     Rebase {
         proposal_id: u64,
-        app_id: u64,
     },
     Lock {
         app_id: u64,
