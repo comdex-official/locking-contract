@@ -1,10 +1,11 @@
 use cosmwasm_std::{Addr, Timestamp};
 use cosmwasm_std::{Coin, Decimal, Uint128};
-use cw_storage_plus::{Item, Map,SnapshotMap, Strategy};
+use cw_controllers::Admin;
+use cw_storage_plus::{Item, Map, SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub const VOTEPOWER: SnapshotMap<(&Addr,String), Uint128 > = SnapshotMap::new(
+pub const VOTEPOWER: SnapshotMap<(&Addr, String), Uint128> = SnapshotMap::new(
     "voters_key",
     "voters_checkpoints",
     "voters_changelogs",
@@ -60,8 +61,6 @@ pub struct Vtoken {
 pub struct TokenInfo {
     /// Owner of the NFT
     pub owner: Addr,
-    /// All Vtokens for a user
-    pub vtokens: Vec<Vtoken>,
     /// Unique token id
     pub token_id: u64,
 }
@@ -80,6 +79,7 @@ pub struct State {
     pub foundation_percentage: Decimal,
     pub voting_period: u64,
     pub surplus_asset_id: u64,
+    pub min_lock_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -95,7 +95,7 @@ pub struct TokenSupply {
 // Holds the internal state
 pub const STATE: Item<State> = Item::new("state");
 // Owner to NFT
-pub const ADMIN: Item<Addr> = Item::new("admin_address");
+pub const ADMIN: Admin = Admin::new("admin");
 
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
@@ -107,7 +107,7 @@ pub const SUPPLY: SnapshotMap<&str, TokenSupply> = SnapshotMap::new(
 );
 // Vtoken owned by an address for a specific denom
 pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
-    "Vtokens by owner",
+    "owner_vtoken",
     "voters_checkpoints",
     "voters_changelogs",
     Strategy::EveryBlock,
@@ -135,7 +135,7 @@ pub struct Emission {
     pub app_id: u64,
     pub total_rewards: u128,
     pub rewards_pending: u128,
-    pub emmission_rate: Decimal,
+    pub emission_rate: Decimal,
     pub distributed_rewards: u128,
 }
 
@@ -146,30 +146,24 @@ pub struct Vote {
     pub vote_weight: u128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Rewards {
-    pub bribe: Vec<Coin>,
-    pub rebase: Coin,
-}
+pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");
 
-pub const PROPOSALCOUNT: Item<u64> = Item::new("Proposal Count");
+pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("app_current_proposal");
 
-pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("App Current_proposal");
+pub const PROPOSALVOTE: Map<(u64, u64), Uint128> = Map::new("proposal_vote");
 
-pub const PROPOSALVOTE: Map<(u64, u64), Uint128> = Map::new("Proposal vote");
+pub const PROPOSAL: Map<u64, Proposal> = Map::new("proposal");
 
-pub const PROPOSAL: Map<u64, Proposal> = Map::new("Proposal");
+pub const BRIBES_BY_PROPOSAL: Map<(u64, u64), Vec<Coin>> = Map::new("bribes_by_proposal");
 
-pub const BRIBES_BY_PROPOSAL: Map<(u64, u64), Vec<Coin>> = Map::new("BRIBES_BY_PROPOSALe");
+pub const EMISSION: Map<u64, Emission> = Map::new("emission");
 
-pub const EMISSION: Map<u64, Emission> = Map::new("Emission");
+pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("voters_vote");
 
-pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("Has voted");
+pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("voters_proposal");
 
-pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("Proposal Vote by voter");
+pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max_proposal_claimed");
 
-pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max proposal claimed");
+pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed_proposals");
 
-pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed proposals");
-
-pub const LOCKINGADDRESS: Map<u64, Vec<Addr>> = Map::new("locking addresses ");
+pub const REBASE_CLAIMED: Map<(Addr, u64), bool> = Map::new("rebase_claimed");

@@ -1,7 +1,9 @@
 use cosmwasm_std::StdError;
+use cw_controllers::AdminError;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
+
 pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
@@ -21,4 +23,16 @@ pub enum ContractError {
 
     #[error("Funds should not be sent with the chosen operation")]
     FundsNotAllowed {},
+
+    #[error("{0}")]
+    Admin(#[from] AdminError),
+
+    #[error("Failure response from sub-message: {0}")]
+    SubMsgFailure(String),
+
+    #[error("Invalid reply from sub-message: {0}")]
+    ParseFailure(String),
+
+    #[error("Error occurred while converting from UTF-8")]
+    BrokenUtf8(#[from] std::string::FromUtf8Error),
 }

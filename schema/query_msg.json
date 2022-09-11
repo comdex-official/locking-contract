@@ -370,6 +370,32 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "user_proposal_all_up"
+      ],
+      "properties": {
+        "user_proposal_all_up": {
+          "type": "object",
+          "required": [
+            "address",
+            "proposal_id"
+          ],
+          "properties": {
+            "address": {
+              "$ref": "#/definitions/Addr"
+            },
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "definitions": {

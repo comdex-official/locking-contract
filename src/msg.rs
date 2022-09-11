@@ -1,5 +1,5 @@
 use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
-use cosmwasm_std::{Addr, Coin, Decimal};
+use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,7 @@ pub struct InstantiateMsg {
     pub surplus_asset_id: u64,
     pub emission: Emission,
     pub admin: Addr,
+    pub min_lock_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -36,22 +37,22 @@ pub enum ExecuteMsg {
         proposal_id: u64,
         extended_pair: u64,
     },
-    Emmission {
+    Emission {
         proposal_id: u64,
     },
     Rebase {
         proposal_id: u64,
-        app_id: u64,
     },
     Lock {
         app_id: u64,
         locking_period: LockingPeriod,
+        recipient: Option<Addr>,
     },
     Withdraw {
         denom: String,
     },
     Transfer {
-        recipent: String,
+        recipient: String,
         locking_period: LockingPeriod,
         denom: String,
     },
@@ -114,7 +115,7 @@ pub enum QueryMsg {
     TotalVTokens {
         address: Addr,
         denom: String,
-        height: Option<u64>
+        height: Option<u64>,
     },
     State {},
     Emission {
@@ -123,6 +124,10 @@ pub enum QueryMsg {
     ExtendedPairVote {
         proposal_id: u64,
         extended_pair_id: u64,
+    },
+    UserProposalAllUp {
+        proposal_id: u64,
+        address: Addr,
     },
 }
 
@@ -133,10 +138,11 @@ pub enum SudoMsg {
         address: Addr,
     },
     UpdateEmissionRate {
-        emission: Emission,
+        emission_rate: Decimal,
+        app_id: u64,
     },
     UpdateFoundationInfo {
-        addresses: Vec<Addr>,
+        addresses: Vec<String>,
         foundation_percentage: Decimal,
     },
     UpdateLockingPeriod {
@@ -147,7 +153,10 @@ pub enum SudoMsg {
     },
     UpdateAdmin {
         admin: Addr,
-    }
+    },
+    UpdateVotingPeriod {
+        voting_period: u64,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -176,4 +185,17 @@ pub struct LockedTokensResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct IssuedVtokensResponse {
     pub vtokens: Vec<Vtoken>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ProposalVoteRespons {
+    pub proposal_pair_data: Vec<ProposalPairVote>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ProposalPairVote {
+    pub extended_pair_id: u64,
+    pub my_vote: Uint128,
+    pub total_vote: Uint128,
+    pub bribe: Vec<Coin>,
 }
