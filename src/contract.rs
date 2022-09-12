@@ -2159,7 +2159,7 @@ mod tests {
         let imsg = init_msg();
         instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
 
-        // code for add app_id.
+        // code to add app_id.
 
         // Raise proposal request from non admin
         let info = mock_info("admin", &[]);
@@ -2235,5 +2235,121 @@ mod tests {
             ContractError::CustomError { .. } => {}
             e => panic!("{:?}", e),
         };
+    }
+
+    #[test]
+    fn bribe_proposal_invalid_request() {
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        // * Proposal does not exist
+        bribe_proposal(deps.as_mut(), env.clone(), info.clone(), 24, 0).unwrap_err();
+
+        // Create a proposal
+        let proposal = Proposal {
+            app_id: 1,
+            voting_start_time: 7,
+            voting_end_time: 10,
+            extended_pair: vec![14, 38],
+            emission_completed: false,
+            rebase_completed: false,
+            foundation_emission_completed: false,
+            emission_distributed: 0,
+            rebase_distributed: 0,
+            foundation_distributed: 0,
+            total_surplus: coin(0, DENOM),
+            total_voted_weight: 12,
+            height: 50,
+        };
+        PROPOSAL.save(deps.as_mut().storage, 23, &proposal).unwrap();
+
+        // * Invalid extended pair
+        bribe_proposal(deps.as_mut(), env.clone(), info.clone(), 1, 12).unwrap_err();
+
+        // * Proposal completed voting period.
+        // Set current block time past the voting_end_time
+        env.block.time = Timestamp::from_seconds(50);
+
+        bribe_proposal(deps.as_mut(), env.clone(), info.clone(), 23, 54).unwrap_err();
+    }
+
+    #[test]
+    fn emission_invalid_request() {
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        // * Only admin can raise the request
+        emission_foundation(deps.as_mut(), env.clone(), info, 12).unwrap_err();
+
+        // Create a proposal
+        let proposal = Proposal {
+            app_id: 1,
+            voting_start_time: 7,
+            voting_end_time: 10,
+            extended_pair: vec![],
+            emission_completed: false,
+            rebase_completed: false,
+            foundation_emission_completed: false,
+            emission_distributed: 0,
+            rebase_distributed: 0,
+            foundation_distributed: 0,
+            total_surplus: coin(0, DENOM),
+            total_voted_weight: 12,
+            height: 50,
+        };
+        let proposal_id = 23u64;
+        PROPOSAL
+            .save(deps.as_mut().storage, proposal_id, &proposal)
+            .unwrap();
+
+        // * Emission not calculated
+        let info = mock_info("admin", &[]);
+
+        let res =
+            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        match res {
+            ContractError::CustomError { val } if val == "Emission caluclation did not take place to initiate foundation calculation".to_string() => {},
+            e => panic!("{:?}", e),
+        };
+
+        // * Foundation emission already distributed
+        let res =
+            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        match res {
+            ContractError::CustomError { val }
+                if val == "Emission already distributed".to_string() => {}
+            e => panic!("{:?}", e),
+        };
+
+        // * Empty foundation addr vector
+        let res =
+            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        match res {
+            ContractError::CustomError { val } if val == "No foundation address found" => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn claim_rewards_invalid_request() {
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &[]);
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
+
+        // !------- Incomplete -------!
     }
 }
