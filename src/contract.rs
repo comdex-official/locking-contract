@@ -2159,9 +2159,7 @@ mod tests {
         let imsg = init_msg();
         instantiate(deps.as_mut(), env.clone(), info, imsg.clone()).unwrap();
 
-        // code to add app_id.
-
-        // Raise proposal request from non admin
+        // Raise proposal request from admin
         let info = mock_info("admin", &[]);
         let msg = ExecuteMsg::RaiseProposal { app_id: 1 };
 
@@ -2206,8 +2204,8 @@ mod tests {
         // Create a proposal
         let proposal = Proposal {
             app_id: 1,
-            voting_start_time: 7,
-            voting_end_time: 10,
+            voting_start_time: Timestamp::from_seconds(7),
+            voting_end_time: Timestamp::from_seconds(10),
             extended_pair: vec![],
             emission_completed: false,
             rebase_completed: false,
@@ -2253,8 +2251,8 @@ mod tests {
         // Create a proposal
         let proposal = Proposal {
             app_id: 1,
-            voting_start_time: 7,
-            voting_end_time: 10,
+            voting_start_time: Timestamp::from_seconds(7),
+            voting_end_time: Timestamp::from_seconds(10),
             extended_pair: vec![14, 38],
             emission_completed: false,
             rebase_completed: false,
@@ -2294,8 +2292,8 @@ mod tests {
         // Create a proposal
         let proposal = Proposal {
             app_id: 1,
-            voting_start_time: 7,
-            voting_end_time: 10,
+            voting_start_time: Timestamp::from_seconds(7),
+            voting_end_time: Timestamp::from_seconds(10),
             extended_pair: vec![],
             emission_completed: false,
             rebase_completed: false,
@@ -2351,5 +2349,84 @@ mod tests {
         instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
 
         // !------- Incomplete -------!
+    }
+
+    #[test]
+    fn rebase_invalid_request() {
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &[]);
+        let proposal_id = 12;
+        let app_id = 1;
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg).unwrap();
+
+        // * Request from non-admin results in err
+        let res = calculate_rebase_reward(deps.as_mut(), env.clone(), info, proposal_id, app_id)
+            .unwrap_err();
+        match res {
+            ContractError::CustomError { val } if val == "Unauthorized".to_string() => {}
+            e => panic!("{:?}", e),
+        };
+
+        let info = mock_info("admin", &[]);
+        // * Invalid proposal
+        let res = calculate_rebase_reward(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            proposal_id,
+            app_id,
+        )
+        .unwrap_err();
+
+        // * No locked users
+        LOCKINGADDRESS
+            .save(deps.as_mut().storage, app_id, &vec![])
+            .unwrap();
+        let res = calculate_rebase_reward(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            proposal_id,
+            app_id,
+        )
+        .unwrap_err();
+        match res {
+            ContractError::CustomError { val }
+                if val == "No locked users to rebase".to_string() => {}
+            e => panic!("{:?}", e),
+        };
+
+        // Create a proposal
+        let proposal = Proposal {
+            app_id: 1,
+            voting_start_time: Timestamp::from_seconds(7),
+            voting_end_time: Timestamp::from_seconds(10),
+            extended_pair: vec![],
+            emission_completed: false,
+            rebase_completed: true,
+            foundation_emission_completed: false,
+            emission_distributed: 0,
+            rebase_distributed: 0,
+            foundation_distributed: 0,
+            total_surplus: coin(0, DENOM),
+            total_voted_weight: 12,
+            height: 50,
+        };
+        PROPOSAL
+            .save(deps.as_mut().storage, proposal_id, &proposal)
+            .unwrap();
+
+        // * Rebase completed
+        let res = calculate_rebase_reward(deps.as_mut(), env.clone(), info, proposal_id, app_id)
+            .unwrap_err();
+        match res {
+            ContractError::CustomError { val } if val == "Rebase already completed".to_string() => {
+            }
+            e => panic!("{:?}", e),
+        };
     }
 }
