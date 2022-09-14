@@ -152,7 +152,7 @@ pub fn emission_foundation(
     // check emission already compluted and executed
     if !proposal.emission_completed {
         return Err(ContractError::CustomError {
-            val: "Emission caluclation did not take place to initiate foundation calculation"
+            val: "Emission calculation did not take place to initiate foundation calculation"
                 .to_string(),
         });
     }
@@ -2280,6 +2280,7 @@ mod tests {
     fn emission_invalid_request() {
         let mut deps = mock_dependencies();
         let mut env = mock_env();
+        env.block.time = Timestamp::from_seconds(8);
         let info = mock_info("sender", &[]);
 
         // Initialize
@@ -2287,7 +2288,7 @@ mod tests {
         instantiate(deps.as_mut(), env.clone(), info.clone(), imsg.clone()).unwrap();
 
         // * Only admin can raise the request
-        emission_foundation(deps.as_mut(), env.clone(), info, 12).unwrap_err();
+        emission(deps.as_mut(), env.clone(), info, 12).unwrap_err();
 
         // Create a proposal
         let proposal = Proposal {
@@ -2310,30 +2311,25 @@ mod tests {
             .save(deps.as_mut().storage, proposal_id, &proposal)
             .unwrap();
 
-        // * Emission not calculated
         let info = mock_info("admin", &[]);
-
-        let res =
-            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
-        match res {
-            ContractError::CustomError { val } if val == "Emission caluclation did not take place to initiate foundation calculation".to_string() => {},
-            e => panic!("{:?}", e),
-        };
-
-        // * Foundation emission already distributed
-        let res =
-            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        // * Contract still in voting period
+        let res = emission(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
         match res {
             ContractError::CustomError { val }
-                if val == "Emission already distributed".to_string() => {}
+                if val
+                    == "Proposal Voting Period not ended to execute emission for the proposal"
+                        .to_string() => {}
             e => panic!("{:?}", e),
         };
 
-        // * Empty foundation addr vector
-        let res =
-            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        // * Emission already completed
+        env.block.time = Timestamp::from_seconds(11);
+        let info = mock_info("admin", &[]);
+
+        let res = emission(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
         match res {
-            ContractError::CustomError { val } if val == "No foundation address found" => {}
+            ContractError::CustomError { val }
+                if val == "Emission already completed".to_string() => {}
             e => panic!("{:?}", e),
         };
     }
@@ -2426,6 +2422,77 @@ mod tests {
         match res {
             ContractError::CustomError { val } if val == "Rebase already completed".to_string() => {
             }
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn emission_foundation_invalid_request() {
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("sender", &[]);
+        let proposal_id = 12;
+        let app_id = 1;
+
+        // Initialize
+        let imsg = init_msg();
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg).unwrap();
+
+        // * Invalid request by non admin
+        let info = mock_info("admin", &[]);
+        let res =
+            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        match res {
+            ContractError::CustomError { val } if val == "Unauthorized".to_string() => {}
+            e => panic!("{:?}", e),
+        };
+
+        // Create a proposal
+        let mut proposal = Proposal {
+            app_id: 1,
+            voting_start_time: Timestamp::from_seconds(7),
+            voting_end_time: Timestamp::from_seconds(10),
+            extended_pair: vec![],
+            emission_completed: false,
+            rebase_completed: false,
+            foundation_emission_completed: false,
+            emission_distributed: 0,
+            rebase_distributed: 0,
+            foundation_distributed: 0,
+            total_surplus: coin(0, DENOM),
+            total_voted_weight: 12,
+            height: 50,
+        };
+        PROPOSAL
+            .save(deps.as_mut().storage, proposal_id, &proposal)
+            .unwrap();
+
+        // * Emmission not calculated
+        let res =
+            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        match res {
+            ContractError::CustomError { val } if val == "Emission calculation did not take place to initiate foundation calculation" => {}
+            e => panic!("{:?}", e),
+        };
+
+        // * Foundation emission already completed
+        proposal.foundation_emission_completed = true;
+        PROPOSAL
+            .save(deps.as_mut().storage, proposal_id, &proposal)
+            .unwrap();
+
+        let res =
+            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        match res {
+            ContractError::CustomError { val } if val == "Emission already distributed" => {}
+            e => panic!("{:?}", e),
+        };
+
+        // * Empty foundation addr vector
+        let res =
+            emission_foundation(deps.as_mut(), env.clone(), info.clone(), proposal_id).unwrap_err();
+        match res {
+            ContractError::CustomError { val } if val == "No foundation address found" => {}
             e => panic!("{:?}", e),
         };
     }
