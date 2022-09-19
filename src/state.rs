@@ -95,7 +95,7 @@ pub struct TokenSupply {
 // Holds the internal state
 pub const STATE: Item<State> = Item::new("state");
 // Owner to NFT
-pub const ADMIN: Admin = Admin::new("admin");
+pub const ADMIN: Admin = Admin::new("admin_address");
 
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
@@ -107,7 +107,7 @@ pub const SUPPLY: SnapshotMap<&str, TokenSupply> = SnapshotMap::new(
 );
 // Vtoken owned by an address for a specific denom
 pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
-    "owner_vtoken",
+    "Vtokens by owner",
     "voters_checkpoints",
     "voters_changelogs",
     Strategy::EveryBlock,
@@ -146,24 +146,24 @@ pub struct Vote {
     pub vote_weight: u128,
 }
 
-pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");
+pub const PROPOSALCOUNT: Item<u64> = Item::new("Proposal Count");
 
-pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("app_current_proposal");
+pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("App Current_proposal");
 
-pub const PROPOSALVOTE: Map<(u64, u64), Uint128> = Map::new("proposal_vote");
+pub const PROPOSALVOTE: Map<(u64, u64), Uint128> = Map::new("Proposal vote");
 
-pub const PROPOSAL: Map<u64, Proposal> = Map::new("proposal");
+pub const PROPOSAL: Map<u64, Proposal> = Map::new("Proposal");
 
-pub const BRIBES_BY_PROPOSAL: Map<(u64, u64), Vec<Coin>> = Map::new("bribes_by_proposal");
+pub const BRIBES_BY_PROPOSAL: Map<(u64, u64), Vec<Coin>> = Map::new("BRIBES_BY_PROPOSALe");
 
-pub const EMISSION: Map<u64, Emission> = Map::new("emission");
+pub const EMISSION: Map<u64, Emission> = Map::new("Emission");
 
-pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("voters_vote");
+pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("Has voted");
 
-pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("voters_proposal");
+pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("Proposal Vote by voter");
 
-pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max_proposal_claimed");
+pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max proposal claimed");
 
-pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed_proposals");
+pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed proposals");
 
-pub const REBASE_CLAIMED: Map<(Addr, u64), bool> = Map::new("rebase_claimed");
+pub const REBASE_CLAIMED: Map<(Addr, u64), bool> = Map::new("locking addresses ");
