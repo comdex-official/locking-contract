@@ -35,13 +35,17 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+    // Validate recieved addresses
     deps.api
         .addr_validate(&msg.vesting_contract.clone().into_string())?;
     deps.api.addr_validate(&msg.admin.clone().into_string())?;
     map_validate(deps.api, &msg.foundation_addr)?;
+
     //query_app_exists(deps.as_ref(), msg.emission.app_id)?;
     let mut foundation_addr_unique = msg.foundation_addr.clone();
+    foundation_addr_unique.sort_unstable();
     foundation_addr_unique.dedup();
+
     let state = State {
         t1: msg.t1,
         t2: msg.t2,
@@ -63,7 +67,7 @@ pub fn instantiate(
     }
     if msg.emission.rewards_pending == 0 {
         return Err(ContractError::CustomError {
-            val: "Pending rewards should be not be zero %".to_string(),
+            val: "Pending rewards should not be zero %".to_string(),
         });
     }
     if msg.emission.distributed_rewards != 0 {
@@ -77,9 +81,11 @@ pub fn instantiate(
             val: "Emission rate cannot be greater one".to_string(),
         });
     }
-    //// Set Contract version
+
+    // Set Contract version
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    //// Set State
+
+    // Set State
     STATE.save(deps.storage, &state)?;
     EMISSION.save(deps.storage, msg.emission.app_id, &msg.emission)?;
     PROPOSALCOUNT.save(deps.storage, &0)?;
@@ -257,6 +263,7 @@ fn lock_funds(
             val: "Lock amount less than minimum lock amount".to_string(),
         });
     }
+
     // Load the locking period and weight
     let PeriodWeight { period, weight } = get_period(state.clone(), locking_period.clone())?;
 
@@ -309,6 +316,7 @@ fn lock_funds(
 
     Ok(())
 }
+
 /// Lock the sent tokens and create corresponding vtokens
 pub fn handle_lock_nft(
     deps: DepsMut<ComdexQuery>,
@@ -357,6 +365,7 @@ pub fn handle_lock_nft(
         .add_attribute("from", info.sender))
 }
 
+/// Create a new Vtoken with the given period, weight, funds.
 fn create_vtoken(
     storage: &mut dyn Storage,
     env: Env,
@@ -438,6 +447,7 @@ fn update_denom_supply(
 
     Ok(())
 }
+
 /// Handles the withdrawal of tokens after completion of locking period.
 pub fn handle_withdraw(
     deps: DepsMut<ComdexQuery>,
@@ -1510,7 +1520,7 @@ mod tests {
     use super::*;
     use crate::state::Emission;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError};
+    use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError, Timestamp};
 
     const DENOM: &str = "TKN";
     /// Returns default InstantiateMsg with each value in seconds.
@@ -1559,6 +1569,7 @@ mod tests {
             custom_query_type: PhantomData,
         }
     }
+
     #[test]
     fn proper_initialization() {
         let env = mock_env();
@@ -2251,7 +2262,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_vote_proposal_with_wrong_extended_pair() {
         // Mock dependencies
         let mut deps = mock_dependencies();
@@ -2295,7 +2305,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_bribe_proposal() {
         // Mock dependencies
         let mut deps = mock_dependencies();
@@ -2342,7 +2351,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_bribe_proposal_wrong_pair() {
         // Mock dependencies
         let mut deps = mock_dependencies();
@@ -2394,7 +2402,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_bribe_proposal_multiple_denoms() {
         // Mock dependencies
         let mut deps = mock_dependencies();
@@ -2452,7 +2459,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_foundation_emission_no_completed() {
         // Mock dependencies
         let mut deps = mock_dependencies();
@@ -2501,7 +2507,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_foundation_emission_accept_no_fund() {
         // Mock dependencies
         let mut deps = mock_dependencies();
@@ -2552,7 +2557,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_foundation_emission() {
         // Mock dependencies
         let mut deps = mock_dependencies();
@@ -2585,7 +2589,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_bribe_reward() {
         // Mock dependencies
         let mut deps = mock_dependencies();
@@ -2656,7 +2659,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_rebase_formula() {
         let total_locked: u128 = 10000_u128;
 
@@ -2673,7 +2675,6 @@ mod tests {
     }
 
     #[test]
-
     fn test_bribe_formula() {
         let vote_weight: u128 = 30_u128;
 
@@ -2684,5 +2685,60 @@ mod tests {
         .mul(Uint128::from(500_u128));
 
         assert_eq!(claimable_amount, Uint128::new(150_u128));
+    }
+
+    #[test]
+    fn instantiate_multi_foundation_addr() {
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("owner", &[]);
+
+        let mut imsg = init_msg();
+        imsg.foundation_addr = vec![
+            "fd1".to_string(),
+            "fd2".to_ascii_lowercase(),
+            "fd3".to_ascii_lowercase(),
+            "fd2".to_string(),
+        ];
+        instantiate(deps.as_mut(), env.clone(), info, imsg).unwrap();
+
+        let state = STATE.load(deps.as_ref().storage).unwrap();
+        assert_eq!(state.foundation_addr.len(), 3);
+        assert_eq!(
+            state.foundation_addr,
+            vec![
+                "fd1".to_string(),
+                "fd2".to_ascii_lowercase(),
+                "fd3".to_ascii_lowercase()
+            ]
+        );
+    }
+
+    #[test]
+    fn instantiate_foundation_addr_multiple_encodes() {
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("owner", &[]);
+
+        let mut imsg = init_msg();
+        imsg.foundation_addr = vec![
+            "fd1".to_string(),
+            "fd2".to_ascii_lowercase(),
+            "fd2".to_string(),
+            "fd2".to_lowercase(),
+            "fd3".to_string(),
+        ];
+        instantiate(deps.as_mut(), env.clone(), info, imsg).unwrap();
+
+        let state = STATE.load(deps.as_ref().storage).unwrap();
+        assert_eq!(state.foundation_addr.len(), 3);
+        assert_eq!(
+            state.foundation_addr,
+            vec![
+                "fd1".to_string(),
+                "fd2".to_string(),
+                "fd3".to_ascii_lowercase()
+            ]
+        );
     }
 }
