@@ -257,6 +257,7 @@ fn lock_funds(
     funds: Coin,
     locking_period: LockingPeriod,
 ) -> Result<(), ContractError> {
+    // Load internal state containing locking period details.
     let mut state = STATE.load(deps.storage)?;
     if state.min_lock_amount > funds.amount {
         return Err(ContractError::CustomError {
@@ -267,6 +268,7 @@ fn lock_funds(
     // Load the locking period and weight
     let PeriodWeight { period, weight } = get_period(state.clone(), locking_period.clone())?;
 
+    // Create a new Vtoken
     let new_vtoken = create_vtoken(
         deps.storage,
         env.clone(),
@@ -276,13 +278,15 @@ fn lock_funds(
         funds.clone(),
     )?;
 
-    // Loads the NFT if present else create a new NFT
+    // Loads the NFT, if present.
     let nft = TOKENS.may_load(deps.storage, sender.clone())?;
 
     match nft {
+        // NFT already exists
         Some(_) => {}
+
+        // Create a new NFT
         None => {
-            // Create a new NFT
             state.num_tokens += 1;
 
             let new_nft = TokenInfo {
@@ -302,7 +306,7 @@ fn lock_funds(
         (sender, &funds.denom),
         env.block.height,
         |el| -> StdResult<Vec<Vtoken>> {
-            // If value exists for given key, then push new vtoken else update
+            // If value exists for given key, then update else create.
             match el {
                 Some(mut val) => {
                     val.push(new_vtoken);
@@ -338,14 +342,13 @@ pub fn handle_lock_nft(
     if info.funds[0].amount.is_zero() {
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
-    if let Some { .. } = recipient {
-        deps.api
-            .addr_validate(recipient.clone().unwrap().as_str())?;
+    if let Some(recipient_address) = recipient {
+        deps.api.addr_validate(recipient_address.clone().as_str())?;
         lock_funds(
             deps,
             env,
             app_id,
-            recipient.unwrap(),
+            recipient_address,
             info.funds[0].clone(),
             locking_period,
         )?;
@@ -534,6 +537,7 @@ pub fn handle_withdraw(
         .add_attribute("from", info.sender))
 }
 
+/// Given the locking period, retrieves the `period` and `weight`.
 fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeight, ContractError> {
     Ok(match locking_period {
         LockingPeriod::T1 => state.t1,
@@ -1486,6 +1490,8 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             let mut state = STATE.load(deps.storage)?;
             map_validate(deps.api, &addresses)?;
             state.foundation_addr = addresses;
+            state.foundation_addr.sort_unstable();
+            state.foundation_addr.dedup();
             state.foundation_percentage = foundation_percentage;
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
