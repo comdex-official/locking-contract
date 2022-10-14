@@ -95,7 +95,7 @@ pub struct TokenSupply {
 // Holds the internal state
 pub const STATE: Item<State> = Item::new("state");
 // Owner to NFT
-pub const ADMIN: Admin = Admin::new("admin");
+pub const ADMIN: Admin = Admin::new("admin_address");
 
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
@@ -107,7 +107,7 @@ pub const SUPPLY: SnapshotMap<&str, TokenSupply> = SnapshotMap::new(
 );
 // Vtoken owned by an address for a specific denom
 pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
-    "owner_vtoken",
+    "Vtokens by owner",
     "voters_checkpoints",
     "voters_changelogs",
     Strategy::EveryBlock,
