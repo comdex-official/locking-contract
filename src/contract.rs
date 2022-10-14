@@ -1451,6 +1451,7 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, Co
     let voting_period=msg.voting_period;
     let mut state = STATE.load(deps.storage)?;
     state.voting_period = voting_period;
+    state.min_lock_amount=Uint128::from(10000_u128);
     STATE.save(deps.storage, &state)?;
     ADMIN.set(deps, Some(msg.admin_address))?;
 
