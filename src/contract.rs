@@ -343,7 +343,7 @@ pub fn handle_lock_nft(
         return Err(ContractError::InsufficientFunds { funds: 0 });
     }
     if let Some(recipient_address) = recipient {
-        deps.api.addr_validate(recipient_address.clone().as_str())?;
+        deps.api.addr_validate(recipient_address.as_str())?;
         lock_funds(
             deps,
             env,

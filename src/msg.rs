@@ -129,6 +129,11 @@ pub enum QueryMsg {
         proposal_id: u64,
         address: Addr,
     },
+    Rebase {
+        address: Addr,
+        app_id: u64,
+        denom: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -165,6 +170,12 @@ pub struct MigrateMsg {}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct IssuedNftResponse {
     pub nft: TokenInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct RebaseResponse {
+    pub proposal_id: u64,
+    pub rebase_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
