@@ -1,100 +1,389 @@
-# CosmWasm Starter Pack
+# Locking Contract
 
-This is a template to build smart contracts in Rust to run inside a
-[Cosmos SDK](https://github.com/cosmos/cosmos-sdk) module on all chains that enable it.
-To understand the framework better, please read the overview in the
-[cosmwasm repo](https://github.com/CosmWasm/cosmwasm/blob/master/README.md),
-and dig into the [cosmwasm docs](https://www.cosmwasm.com).
-This assumes you understand the theory and just want to get coding.
+This contract provides the functionality of locking funds for predefined durations
+and returning *vtokens*.
 
-## Creating a new repo from template
+Each new account is assigned a Non-Fungible Token (NFT).
 
-Assuming you have a recent version of rust and cargo (v1.58.1+) installed
-(via [rustup](https://rustup.rs/)),
-then the following should get you a new repo to start a contract:
+Term Definitions:
 
-Install [cargo-generate](https://github.com/ashleygwilliams/cargo-generate) and cargo-run-script.
-Unless you did that before, run this line now:
+token
+vtoken
+emission
+rebase
+extended pair
 
-```sh
-cargo install cargo-generate --features vendored-openssl
-cargo install cargo-run-script
+## Instantiate Operation
+
+```rust
+InstantiateMsg {
+    pub t1: PeriodWeight,
+    pub t2: PeriodWeight,
+    pub t3: PeriodWeight,
+    pub t4: PeriodWeight,
+    pub voting_period: u64,
+    pub vesting_contract: Addr,
+    pub foundation_addr: Vec<String>,
+    pub foundation_percentage: Decimal,
+    pub surplus_asset_id: u64,
+    pub emission: Emission,
+    pub admin: Addr,
+    pub min_lock_amount: Uint128,
+}
 ```
 
-Now, use it to create your new contract.
-Go to the folder in which you want to place it and run:
+Instatiates a new instance of this contract with the following details. Here,
+t1 through t4 represent four time periods that may be used to lock sent tokens
+and return *vtokens*.
 
+* `t1`--`t4` - specifies the duration (in seconds) and weight (in decimals) of each time period.
+* `voting_period` - Proposal voting period.
+* `vesting_contract` - Address of the vesting contract on chain.
+* `foundation_addr` - An array of addresses of foundation wallets.
+* `foundation_percentage` - Percentage of emission transferred to foundation.
+* `surplus_asset_id` -
+* `emission` -
+* `admin` - Address of the admin.
+* `min_lock_amount` - Minimum amount of tokens that need to be locked.
 
-**Latest: 1.0.0**
+## Query Operations
 
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --name PROJECT_NAME
-````
+The following query operations are available:
 
-For cloning minimal code repo:
+1. [IssuedNft](#issuednft)
+2. IssuedVtokens
+4. Supply
+5. CurrentProposal
+6. Proposal
+7. BribeByProposal
+8. HasVoted
+9. Vote
+10. ClaimableBribe
+11. Withdrawable
+12. TotalVTokens
+13. State
+14. Emisson
+15. ExtendedPairVote
 
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --branch 1.0-minimal --name PROJECT_NAME
+### IssuedNft
+
+```rust
+IssuedNft {
+    address: String,
+}
 ```
 
-**Older Version**
+Queries the nft info for the given address.
 
-Pass version as branch flag:
+* `address` - Address of the user.
 
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --branch <version> --name PROJECT_NAME
-````
+RESPONSE:
 
-Example:
-
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --branch 0.16 --name PROJECT_NAME
+```rust
+TokenInfo {
+    pub owner: Addr,
+    pub token_id: u64,
+}
 ```
 
-You will now have a new folder called `PROJECT_NAME` (I hope you changed that to something else)
-containing a simple working contract and build system that you can customize.
+* `owner` - Address of this NFT.
+* `token_id` - Unique identifier assigned.
 
-## Create a Repo
+### IssuedVtokens
 
-After generating, you have a initialized local git repo, but no commits, and no remote.
-Go to a server (eg. github) and create a new upstream repo (called `YOUR-GIT-URL` below).
-Then run the following:
-
-```sh
-# this is needed to create a valid Cargo.lock file (see below)
-cargo check
-git branch -M main
-git add .
-git commit -m 'Initial Commit'
-git remote add origin YOUR-GIT-URL
-git push -u origin main
+```rust
+IssuedVtokens {
+    address: Addr,
+    denom: String,
+    start_after: u32,
+    limit: Option<u32>,
+}
 ```
 
-## CI Support
+Query the vtokens issued to the user for a specific denomination.
 
-We have template configurations for both [GitHub Actions](.github/workflows/Basic.yml)
-and [Circle CI](.circleci/config.yml) in the generated project, so you can
-get up and running with CI right away.
+* `address` - Address of the user.
+* `denom` - Denomination of token. For example, OSMO, CMDX, etc.
+* `start_after` - Returns results after this index.
+* `limit` - Count of results in response.
 
-One note is that the CI runs all `cargo` commands
-with `--locked` to ensure it uses the exact same versions as you have locally. This also means
-you must have an up-to-date `Cargo.lock` file, which is not auto-generated.
-The first time you set up the project (or after adding any dep), you should ensure the
-`Cargo.lock` file is updated, so the CI will test properly. This can be done simply by
-running `cargo check` or `cargo unit-test`.
+RESPONSE:
 
-## Using your project
+The response contains an array of vtoken with the following details.
 
-Once you have your custom repo, you should check out [Developing](./Developing.md) to explain
-more on how to run tests and develop code. Or go through the
-[online tutorial](https://docs.cosmwasm.com/) to get a better feel
-of how to develop.
+```rust
+Vtoken {
+    pub token: Coin,
+    pub vtoken: Coin,
+    pub period: LockingPeriod,
+    pub start_time: Timestamp,
+    pub end_time: Timestamp,
+    pub status: Status,
+}
+```
 
-[Publishing](./Publishing.md) contains useful information on how to publish your contract
-to the world, once you are ready to deploy it on a running blockchain. And
-[Importing](./Importing.md) contains information about pulling in other contracts or crates
-that have been published.
+* `token` - Original token denomination and quantity locked.
+* `vtoken` - Corresponding token denomination and quantity released.
+* `period` - Locking period for the locked tokens, i.e. t1 to t4.
+* `start_time` - Timestamp when the tokens were locked.
+* `end_time` - Timestamp when the tokens will be unlocked.
+* `status` - Current status of the tokens, i.e. *locked* or *unlocked*.
 
-Please replace this README file with information about your specific project. You can keep
-the `Developing.md` and `Publishing.md` files as useful referenced, but please set some
-proper description in the README.
+### Supply
+
+```rust
+Supply {
+    denom: String,
+}
+```
+
+Query the total supply of a locked denomination and the corresponding supply of
+the released vtokens.
+
+* `denom` - Denomination of locked token.
+
+RESPONSE:
+
+```rust
+TokenSupply {
+    pub token: u128,
+    pub vtoken: u128,
+}
+```
+
+* `token` - Total tokens locked for the specified denomination.
+* `vtoken` - Total vtokens released corresponding to the locked tokens.
+
+### CurrentProposal
+
+```rust
+CurrentProposal {
+    app_id: u64,
+}
+```
+
+Query the latest proposal specific to an application.
+
+* `app_id` - Application ID.
+
+RESPONSE:
+
+The response of this query returns an integer denoting the unique proposal ID.
+
+### Proposal
+
+```rust
+Proposal {
+    proposal_id: u64,
+}
+```
+
+Query the proposal with the specified proposal ID.
+
+* `proposal_id` - Unique proposal ID.
+
+```rust
+Proposal {
+    pub app_id: u64,
+    pub voting_start_time: Timestamp,
+    pub voting_end_time: Timestamp,
+    pub extended_pair: Vec<u64>,
+    pub emission_completed: bool,
+    pub rebase_completed: bool,
+    pub foundation_emission_completed: bool,
+    pub emission_distributed: u128,
+    pub rebase_distributed: u128,
+    pub foundation_distributed: u128,
+    pub total_voted_weight: u128,
+    pub total_surplus: Coin,
+    pub height: u64,
+}
+```
+
+* `app_id` - Application ID where this proposal was raised.
+* `voting_start_time` - Timestamp when the voting starts for the proposal.
+* `voting_end_time` - Timestamp when the voting ends for the proposal.
+* `extended_pair` - unique identifier of the token pair for which to vote.
+* `emission_completed` - Boolean value that represent if the emission has been
+calculated for the proposal.
+* `rebase_completed` - Boolean value to represent if rebase has been calculated.
+* `foundation_emission_completed` - Binary value to represent if foundation
+emission has been calculated.
+* `emission_distributed` - Total emission distributed thus far.
+* `rebase_distributed` - Total rebase distributed thus far.
+* `foundation_distributed` - Total foundation emission distributed thus far.
+* `total_voted_weight` - Total weight of the votes for this proposal.
+* `total_surplus` - Total reward surplus.
+* `height` - Block height when the proposal was raised.
+
+### BribeByProposal
+
+```rust
+BribeByProposal {
+    proposal_id: u64,
+    extended_pair_id: u64,
+}
+```
+
+Query the bribes made by users on this proposal. If bribes are present, then
+the response is as shown under *RESPONSE*, else the query return *None*.
+
+* `proposal_id` - Unique proposal ID.
+* `extended_pair_id` - Unique extended pair ID.
+
+RESPONSE:
+
+The response of this query is an array of tokens specifying the amount and
+denomination.
+
+```rust
+{
+    denom: String,
+    amount: Uint128,
+}
+```
+
+* `denom` - Denomination of the token used for bribe.
+* `amount` - Amount of tokens used for bribe.
+
+### HasVoted
+
+```rust
+HasVoted {
+    address: Addr,
+    proposal_id: u64,
+},
+```
+
+Query a proposal if the specified user has voted.
+
+* `address` - Address of the user.
+* `proposal_id` - Unique proposal ID.
+
+RESPONSE:
+
+If the user has voted then, it returns *true*, else *false*.
+
+### Vote
+
+```rust
+Vote {
+    address: Addr,
+    proposal_id: u64,
+},
+```
+
+Query information on a users vote. If the user did vote, then
+the response is as shown under *RESPONSE*, else the query returns *None*.
+
+* `address` - Address of the user.
+* `proposal_id` - Unique proposal ID.
+
+```rust
+{
+    app_id: u64,
+    extended_pair: u64,
+    vote_weight: u128,
+}
+```
+
+* `app_id` - Unique application ID.
+* `extended_pair` - Unique ID of the extended pair for which the user voted.
+* `vote_weight` - Weight of the user's vote.
+
+### ClaimableBribe
+
+```rust
+ClaimableBribe {
+    address: Addr,
+    app_id: u64,
+},
+```
+
+Query the claimable bribe for a user for all completed proposals of an application.
+
+* `address` - Address of the user.
+* `app_id` - Unique application ID.
+
+RESPONSE:
+
+The response of this query is an array of tokens specifying the denomination
+and the amount.
+
+```rust
+{
+    denom: String,
+    amount: Uint128,
+}
+```
+
+* `denom` - Denomination of the token used for bribe.
+* `amount` - Amount of tokens used for bribe.
+
+### Withdrawable
+
+```rust
+Withdrawable {
+    address: String,
+    denom: String,
+}
+```
+
+Query the total withdrawable tokens for a specific denom, which were previously
+locked.
+
+* `address` - Address of the user.
+* `denom` - Denomination for which to check unlocked tokens.
+
+RESPONSE:
+
+```rust
+{
+    amount: Coin,
+}
+```
+
+* `amount` - Contains the total amount withdrawable.
+
+### TotalVTokens
+
+```rust
+TotalVTokens {
+    address: Addr,
+    denom: String,
+    height: Option<u64>,
+},
+```
+
+Query the total vtokens in possession of a user, for a specific denom and
+optionally for a specific block height. This allows querying past data.
+
+* `address` - Address of the user.
+* `denom` - Denomination for which to check. For example, OSMO, CMDX, etc.
+* `height` - Block height at which to check the vtoken balance.
+
+RESPONSE:
+
+This query returns the total amount of vtokens.
+
+### Others
+
+```rust
+State {},
+Emission {
+    app_id: u64,
+},
+ExtendedPairVote {
+    proposal_id: u64,
+    extended_pair_id: u64,
+},
+UserProposalAllUp {
+    proposal_id: u64,
+    address: Addr,
+},
+Rebase {
+    address: Addr,
+    app_id: u64,
+    denom: String,
+},
+```
