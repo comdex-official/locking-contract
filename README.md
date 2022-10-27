@@ -366,24 +366,133 @@ RESPONSE:
 
 This query returns the total amount of vtokens.
 
-### Others
+### State
 
 ```rust
-State {},
+State {}
+```
+
+Query the state configuration for the contract. This is helpful to retrieve
+information regarding the locking periods (t1 - t4), the number of NFT issued
+or the vesting contract address among others.
+
+```rust
+State {
+    pub t1: PeriodWeight,
+    pub t2: PeriodWeight,
+    pub t3: PeriodWeight,
+    pub t4: PeriodWeight,
+    pub num_tokens: u64,
+    pub vesting_contract: Addr,
+    pub foundation_addr: Vec<String>,
+    pub foundation_percentage: Decimal,
+    pub voting_period: u64,
+    pub surplus_asset_id: u64,
+    pub min_lock_amount: Uint128,
+}
+```
+
+* `t1`--`t4` - Locking periods.
+* `num_tokens` - Current count of NFTs issued.
+* `vesting_contract` - Address of the vesting contract.
+* `foundation_addr` - Address(es) of the foundation wallets.
+* `foundation_percentage` - Percentage of emission transferred to foundation.
+* `voting_period` - Maximum voting period for any proposal.
+* `surplus_asset_id` -
+* `min_lock_amount` - Minimum amount of tokens that need to be locked.
+
+### Emission
+
+```rust
 Emission {
     app_id: u64,
-},
+}
+```
+
+Query the emission status for the given application.
+
+* `app_id` - Unique Application ID.
+
+RESPONSE:
+
+```rust
+Emission {
+    app_id: u64,
+    total_rewards: u128,
+    rewards_pending: u128,
+    emission_rate: Decimal,
+    distributed_rewards: u128,
+}
+```
+
+* `app_id` - Unique application ID.
+* `total_rewards` - Total rewards that need to be distributed.
+* `rewards_pending` - Rewards yet to be distributed.
+* `emission_rate` - Rate at which emission is calculated.
+* `distributed_rewards` - Rewards distributed of the total rewards.
+
+### ExtendedPairVote
+
+```rust
 ExtendedPairVote {
     proposal_id: u64,
     extended_pair_id: u64,
-},
+}
+```
+
+Queries the votes received for the specified extended pair and proposal.
+
+* `proposal_id` - Unique proposal ID.
+* `extended_pair_id` - Unique ID of the extended pair.
+
+RESPONSE:
+
+The response of this query returns the total votes as integer.
+
+### UserProposalAllUp
+
+```rust
 UserProposalAllUp {
     proposal_id: u64,
     address: Addr,
-},
+}
+```
+
+```rust
+ProposalPairVote {
+    extended_pair_id: u64,
+    my_vote: Uint128,
+    total_vote: Uint128,
+    bribe: Vec<Coin>,
+}
+```
+
+### Rebase
+
+```rust
 Rebase {
     address: Addr,
     app_id: u64,
     denom: String,
-},
+}
 ```
+
+Query the total rebase for a user.
+
+* `address` - Address of the user.
+* `app_id` - Unique application ID.
+* `denom` - Denomination of the token.
+
+RESPONSE:
+
+The response of this query is an array of the following details.
+
+```rust
+RebaseResponse {
+    proposal_id: u64,
+    rebase_amount: Uint128,
+}
+```
+
+* `proposal_id` - Unique proposal ID.
+* `rebase_amount` - Rebase amount that may be claimed.
