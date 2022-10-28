@@ -1447,7 +1447,7 @@ pub fn raise_proposal(
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     let ver = cw2::get_contract_version(deps.storage)?;
     // ensure we are migrating from an allowed contract
     if ver.contract != CONTRACT_NAME {
@@ -1462,12 +1462,12 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, Co
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     // do any desired state migrations...
 
-    let voting_period=msg.voting_period;
-    let mut state = STATE.load(deps.storage)?;
-    state.voting_period = voting_period;
-    state.min_lock_amount=Uint128::from(10000_u128);
-    STATE.save(deps.storage, &state)?;
-    ADMIN.set(deps, Some(msg.admin_address))?;
+    // let voting_period=msg.voting_period;
+    // let mut state = STATE.load(deps.storage)?;
+    // state.voting_period = voting_period;
+    // state.min_lock_amount=Uint128::from(10000_u128);
+    // STATE.save(deps.storage, &state)?;
+    // ADMIN.set(deps, Some(msg.admin_address))?;
 
 
     Ok(Response::default())

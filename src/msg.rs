@@ -129,8 +129,19 @@ pub enum QueryMsg {
         proposal_id: u64,
         address: Addr,
     },
+    
+    Rebase {
+        address: Addr,
+        app_id: u64,
+        denom: String,
+    },
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct RebaseResponse {
+    pub proposal_id: u64,
+    pub rebase_amount: Uint128,
+}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SudoMsg {
@@ -160,7 +171,7 @@ pub enum SudoMsg {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MigrateMsg {pub admin_address: Addr , pub voting_period:u64}
+pub struct MigrateMsg {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct IssuedNftResponse {
