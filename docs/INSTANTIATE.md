@@ -28,3 +28,30 @@ in return for *vtokens*.
 * `emission` -
 * `admin` - Address of the admin.
 * `min_lock_amount` - Minimum amount of tokens that need to be locked.
+
+```json
+{
+    "t1": {
+        "period":0,
+        "weight":0,
+    },
+    "t2": {
+        "period":0,
+        "weight":0,
+    },
+    "voting_period":0,
+    "vesting_contract":"",
+    "foundation_addr":[],
+    "foundation_percentage":0,
+    "surplus_asset_id":0,
+    "emission": {
+        "app_id":0,
+        "distributed_rewards":0,
+        "emission_rate":0,
+        "rewards_pending":0,
+        "total_rewards":0
+    },
+    "admin":"",
+    "min_lock_amount":0
+}
+```
