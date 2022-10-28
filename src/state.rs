@@ -24,14 +24,12 @@ pub struct PeriodWeight {
 pub enum LockingPeriod {
     T1,
     T2,
-    T3,
-    T4,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
-    /// When the tokens are in the vesting period.
+    /// When the tokens are in the locking period.
     Locked,
     /// When the tokens have completed the locking period,
     /// the owner is free to retrieve their tokens.
@@ -45,7 +43,7 @@ pub struct Vtoken {
     pub token: Coin,
     /// amount of vtoken created
     pub vtoken: Coin,
-    /// Locking period i.e. T1..4
+    /// Locking period i.e. T1 or T2
     pub period: LockingPeriod,
     /// Time at which the tokens were locked
     pub start_time: Timestamp,
@@ -71,8 +69,6 @@ pub struct TokenInfo {
 pub struct State {
     pub t1: PeriodWeight,
     pub t2: PeriodWeight,
-    pub t3: PeriodWeight,
-    pub t4: PeriodWeight,
     pub num_tokens: u64,
     pub vesting_contract: Addr,
     pub foundation_addr: Vec<String>,

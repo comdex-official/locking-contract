@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 pub struct InstantiateMsg {
     pub t1: PeriodWeight,
     pub t2: PeriodWeight,
-    pub t3: PeriodWeight,
-    pub t4: PeriodWeight,
     pub voting_period: u64,
     pub vesting_contract: Addr,
     pub foundation_addr: Vec<String>,
@@ -153,8 +151,6 @@ pub enum SudoMsg {
     UpdateLockingPeriod {
         t1: PeriodWeight,
         t2: PeriodWeight,
-        t3: PeriodWeight,
-        t4: PeriodWeight,
     },
     UpdateAdmin {
         admin: Addr,

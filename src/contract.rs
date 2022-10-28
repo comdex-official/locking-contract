@@ -49,8 +49,6 @@ pub fn instantiate(
     let state = State {
         t1: msg.t1,
         t2: msg.t2,
-        t3: msg.t3,
-        t4: msg.t4,
         num_tokens: 0_u64,
         vesting_contract: msg.vesting_contract,
         foundation_addr: foundation_addr_unique,
@@ -542,8 +540,6 @@ fn get_period(state: State, locking_period: LockingPeriod) -> Result<PeriodWeigh
     Ok(match locking_period {
         LockingPeriod::T1 => state.t1,
         LockingPeriod::T2 => state.t2,
-        LockingPeriod::T3 => state.t3,
-        LockingPeriod::T4 => state.t4,
     })
 }
 
@@ -914,15 +910,11 @@ pub fn calculate_rebase_reward(
     //// get rebase amount per period
     let mut locked_t1: u128 = 0;
     let mut locked_t2: u128 = 0;
-    let mut locked_t3: u128 = 0;
-    let mut locked_t4: u128 = 0;
 
     for vtoken in vtokens {
         match vtoken.period {
             LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
             LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
-            LockingPeriod::T3 => locked_t3 += vtoken.token.amount.u128(),
-            LockingPeriod::T4 => locked_t4 += vtoken.token.amount.u128(),
         }
     }
 
@@ -966,50 +958,8 @@ pub fn calculate_rebase_reward(
             LockingPeriod::T2,
         )?;
     }
-    let lock_amount_t3 = Uint128::from(locked_t3).mul(Decimal::from_ratio(
-        Uint128::from(total_rebase_amount),
-        Uint128::from(total_locked),
-    ));
 
-    if lock_amount_t3 != Uint128::zero() {
-        let fund_t3 = Coin {
-            amount: lock_amount_t3,
-            denom: gov_token_denom.clone(),
-        };
-        lock_funds(
-            deps.branch(),
-            env.clone(),
-            proposal.app_id,
-            info.sender.clone(),
-            fund_t3,
-            LockingPeriod::T3,
-        )?;
-    }
-    let lock_amount_t4 = Uint128::from(locked_t4).mul(Decimal::from_ratio(
-        Uint128::from(total_rebase_amount),
-        Uint128::from(total_locked),
-    ));
-
-    if lock_amount_t4 != Uint128::zero() {
-        let fund_t4 = Coin {
-            amount: lock_amount_t4,
-            denom: gov_token_denom,
-        };
-        lock_funds(
-            deps.branch(),
-            env,
-            proposal.app_id,
-            info.sender.clone(),
-            fund_t4,
-            LockingPeriod::T4,
-        )?;
-    }
-
-    if lock_amount_t1 == Uint128::zero()
-        && lock_amount_t2 == Uint128::zero()
-        && lock_amount_t3 == Uint128::zero()
-        && lock_amount_t4 == Uint128::zero()
-    {
+    if lock_amount_t1 == Uint128::zero() && lock_amount_t2 == Uint128::zero() {
         return Err(ContractError::CustomError {
             val: "Claimable rebase ratio not met for the existing locks".to_string(),
         });
@@ -1506,12 +1456,10 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
-        SudoMsg::UpdateLockingPeriod { t1, t2, t3, t4 } => {
+        SudoMsg::UpdateLockingPeriod { t1, t2 } => {
             let mut state = STATE.load(deps.storage)?;
             state.t1 = t1;
             state.t2 = t2;
-            state.t3 = t3;
-            state.t4 = t4;
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
@@ -1540,8 +1488,7 @@ mod tests {
 
     const DENOM: &str = "TKN";
     /// Returns default InstantiateMsg with each value in seconds.
-    /// - t1 is 1 week (7*24*60*60), similarly, t2 is 2 weeks, t3 is 3 weeks
-    /// and t4 is 4 weeks.
+    /// Thus, t1 is 1 week (7*24*60*60) and similarly, t2 is 2 weeks.
     fn init_msg() -> InstantiateMsg {
         InstantiateMsg {
             t1: PeriodWeight {
@@ -1551,14 +1498,6 @@ mod tests {
             t2: PeriodWeight {
                 period: 1_209_600,
                 weight: Decimal::from_atomics(Uint128::new(50), 2).unwrap(),
-            },
-            t3: PeriodWeight {
-                period: 1_814_400,
-                weight: Decimal::from_atomics(Uint128::new(75), 2).unwrap(),
-            },
-            t4: PeriodWeight {
-                period: 2_419_200,
-                weight: Decimal::from_atomics(Uint128::new(100), 2).unwrap(),
             },
             voting_period: 30000,
             vesting_contract: Addr::unchecked("vesting_contract"),
@@ -1601,7 +1540,6 @@ mod tests {
 
         let state = STATE.load(&deps.storage).unwrap();
         assert_eq!(state.t1, msg.t1);
-        assert_eq!(state.t3, msg.t3);
     }
 
     #[test]

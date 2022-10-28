@@ -440,18 +440,14 @@ pub fn query_rebase_eligible(
                 }
                 let mut locked_t1: u128 = 0;
                 let mut locked_t2: u128 = 0;
-                let mut locked_t3: u128 = 0;
-                let mut locked_t4: u128 = 0;
 
                 for vtoken in vtokens {
                     match vtoken.period {
                         LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
                         LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
-                        LockingPeriod::T3 => locked_t3 += vtoken.token.amount.u128(),
-                        LockingPeriod::T4 => locked_t4 += vtoken.token.amount.u128(),
                     }
                 }
-                let sum = locked_t1 + locked_t2 + locked_t3 + locked_t4;
+                let sum = locked_t1 + locked_t2;
                 let rebase_amount = (Uint128::from(total_rebase_amount)
                     .checked_mul(Uint128::from(sum))?)
                 .checked_div(Uint128::from(total_locked))?;
