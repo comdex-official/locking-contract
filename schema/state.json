@@ -11,8 +11,6 @@
     "surplus_asset_id",
     "t1",
     "t2",
-    "t3",
-    "t4",
     "vesting_contract",
     "voting_period"
   ],
@@ -43,12 +41,6 @@
       "$ref": "#/definitions/PeriodWeight"
     },
     "t2": {
-      "$ref": "#/definitions/PeriodWeight"
-    },
-    "t3": {
-      "$ref": "#/definitions/PeriodWeight"
-    },
-    "t4": {
       "$ref": "#/definitions/PeriodWeight"
     },
     "vesting_contract": {

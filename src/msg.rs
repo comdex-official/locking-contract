@@ -161,7 +161,12 @@ pub enum SudoMsg {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MigrateMsg {pub admin_address : Addr,pub voting_period: u64,pub vesting_contract:Addr,pub app_id:u64}
+pub struct MigrateMsg {
+    pub admin_address: Addr,
+    pub voting_period: u64,
+    pub vesting_contract: Addr,
+    pub app_id: u64,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct IssuedNftResponse {
