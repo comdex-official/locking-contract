@@ -6,7 +6,7 @@ use crate::helpers::{
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
-    TOKENS, VTOKENS,
+    TOKENS, VTOKENS,Emission
 };
 use crate::state::{
     Proposal, Vote, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
@@ -1397,7 +1397,7 @@ pub fn raise_proposal(
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     let ver = cw2::get_contract_version(deps.storage)?;
     // ensure we are migrating from an allowed contract
     if ver.contract != CONTRACT_NAME {
@@ -1410,8 +1410,31 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
 
     // set the new version
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    // do any desired state migrations...
+    //do any desired state migrations...
+    let state = State {
+        t1: PeriodWeight { period: 1209600, weight: Decimal::percent(25) },
+        t2: PeriodWeight{ period: 9676800, weight: Decimal::percent(100) },
+        num_tokens: 0_u64,
+        vesting_contract: msg.vesting_contract,
+        foundation_addr: vec![msg.admin_address.to_string()],
+        foundation_percentage:Decimal::percent(25),
+        surplus_asset_id: 3,
+        voting_period: msg.voting_period,
+        min_lock_amount: Uint128::from(200_u128),
+    };
+    let emission=Emission {
+         app_id: msg.app_id,
+         total_rewards: 500000000000000,
+         rewards_pending: 500000000000000,
+         emission_rate: Decimal::percent(1),
+         distributed_rewards: 0,
+    };
+    EMISSION.save(deps.storage, emission.app_id, &emission)?;
+    PROPOSALCOUNT.save(deps.storage, &0)?;
+    STATE.save(deps.storage, &state)?;
+    ADMIN.set(deps, Some(msg.admin_address))?;
 
+    
     Ok(Response::default())
 }
 
