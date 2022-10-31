@@ -1,10 +1,14 @@
 # Locking Contract
 
-TODO: Add a brief overview of locking contract.
+The locking-contract encloses the core functionality for locking governance tokens
+for a different locking period generating ve representation of locked tokens in an nft.
+The contract also holds the key logic to handle token emission and its distribution.
 
 ## Documentation
 
-TODO: Add hyperlinks to other docs.
+For an overview of the locking contract, click [here](/docs/OVERVIEW.md).
+Documentation of the [instantiate](/docs/INSTANTIATE.md), [execute](/docs/EXECUTE.md) and
+[query](/docs/QUERY.md) messages are available in `docs/` folder.
 
 ## Compilation
 
@@ -21,5 +25,3 @@ docker run --rm -v "$(pwd)":/code \
   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
   cosmwasm/rust-optimizer:0.12.6
 ```
-
-TODO: Add basic compilation information.

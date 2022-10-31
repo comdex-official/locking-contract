@@ -13,9 +13,9 @@ Term Definitions:
 * rebase
 * extended pair
 
-## Locking Mechanism
+## Locking
 
-At the moment, there are 3 important factors when using the locking functionality:
+During locking, there are 3 important factors that need to be considered:
 
 1. **Denomination** - Only governance token may be locked.
 2. **Locking period** - The amount of *vtoken* generated is calculated using the chosen locking period's.
@@ -29,7 +29,7 @@ sender will not be able to withdraw or use any other functionality enjoyed by th
 
 There are two locking periods available, henceforth referred to as T1 and T2.
 Both locking periods have two values associated with them, *period* and *weight*.
-*Period* refers to the minimum locking duration of the tokens. Withdrawals are not
+*Period* refers to the minimum locking duration of the tokens, in seconds. Withdrawals are not
 allowed while the tokens are locked. However, it is upto the user when to withdraw
 their tokens post unlocking.
 *Weight* is used to calculate the vtokens based on the original deposit of tokens.
@@ -45,3 +45,23 @@ vHARBOR is calculated as:
 > vHARBOR = deposit * weight of locking period
 >
 > vHARBOR = 100 * 0.5 = 50
+
+## Voting
+
+This contract allows for voting on a token pair to recieve external incentives.
+Only vtoken holders are allowed to vote during an epoch. The weight of a users
+vote is based on the amount of vtoken available at the beginning of the epoch.
+
+## Bribing
+
+To incentivise vtoken holders to vote on one token-pair over another, users are
+allowed to bribe that token-pair. The total bribe is distributed among all the
+voters based on the proportional value of their vote weight over the total vote
+weight.
+
+## Withdrawing
+
+Once the deposited tokens have completed their locking period, they may be
+withdrawn by simply providing the denomination of the token. All
+deposited tokens, irrespective of their locking periods, are transferred to the
+user.
