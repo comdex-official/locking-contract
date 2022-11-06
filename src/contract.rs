@@ -947,11 +947,11 @@ pub fn calculate_rebase_reward(
     if lock_amount_t2 != Uint128::zero() {
         let fund_t2 = Coin {
             amount: lock_amount_t2,
-            denom: gov_token_denom.clone(),
+            denom: gov_token_denom,
         };
         lock_funds(
             deps.branch(),
-            env.clone(),
+            env,
             proposal.app_id,
             info.sender.clone(),
             fund_t2,

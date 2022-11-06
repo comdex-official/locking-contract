@@ -412,10 +412,11 @@ pub fn query_rebase_eligible(
         Some(val) => val,
         None => vec![],
     };
-    for proposal_id in all_proposals {
-        let has_rebased = REBASE_CLAIMED.may_load(deps.storage, (address.clone(), proposal_id))?;
+    for proposal_id_param in all_proposals {
+        let has_rebased =
+            REBASE_CLAIMED.may_load(deps.storage, (address.clone(), proposal_id_param))?;
         if has_rebased.is_none() {
-            let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+            let proposal = PROPOSAL.load(deps.storage, proposal_id_param)?;
             if !proposal.emission_completed {
                 continue;
             } else {
@@ -448,12 +449,12 @@ pub fn query_rebase_eligible(
                     }
                 }
                 let sum = locked_t1 + locked_t2;
-                let rebase_amount = (Uint128::from(total_rebase_amount)
+                let rebase_amount_param = (Uint128::from(total_rebase_amount)
                     .checked_mul(Uint128::from(sum))?)
                 .checked_div(Uint128::from(total_locked))?;
                 let rebase_response = RebaseResponse {
-                    proposal_id: proposal_id,
-                    rebase_amount: rebase_amount,
+                    proposal_id: proposal_id_param,
+                    rebase_amount: rebase_amount_param,
                 };
                 response.push(rebase_response);
             }
