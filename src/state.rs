@@ -93,7 +93,7 @@ pub const STATE: Item<State> = Item::new("state");
 // Owner to NFT
 pub const ADMIN: Admin = Admin::new("admin_address");
 
-pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens_hbr");
+pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
 pub const SUPPLY: SnapshotMap<&str, TokenSupply> = SnapshotMap::new(
     "supply",

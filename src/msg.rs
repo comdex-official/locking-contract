@@ -132,6 +132,7 @@ pub enum QueryMsg {
         app_id: u64,
         denom: String,
     },
+    Admin {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]

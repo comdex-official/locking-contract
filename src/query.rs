@@ -6,7 +6,7 @@ use crate::msg::{
     WithdrawableResponse,
 };
 use crate::state::{
-    Emission, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL,
+    Emission, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, ADMIN, APPCURRENTPROPOSAL,
     BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
     REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
@@ -83,8 +83,14 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             address,
             denom,
         } => to_binary(&query_rebase_eligible(deps, env, address, app_id, denom)?),
+        QueryMsg::Admin {} => to_binary(&query_admin(deps, env)?),
         _ => panic!("Not implemented"),
     }
+}
+
+pub fn query_admin(deps: Deps<ComdexQuery>, _env: Env) -> StdResult<Option<Addr>> {
+    let admin = ADMIN.get(deps)?;
+    Ok(admin)
 }
 
 pub fn query_emission(
