@@ -62,7 +62,7 @@ when the locking period for the tokens has been completed.
 * `locking_period` - Tokens with the specified locking period will be transferred.
 * `denom` - Token denomination that needs to be transferred.
 
-## VoteProposal
+## Vote Proposal
 
 ```rust
 VoteProposal {
@@ -72,7 +72,7 @@ VoteProposal {
 }
 ```
 
-Any user with vtokens may vote on an active proposal.
+Any user with vtokens may vote on an active proposal for a specific extended pair.
 
 * `app_id` - Unique application ID.
 * `proposal_id` - Unique proposal ID of an active proposal.
@@ -87,12 +87,12 @@ Bribe {
 }
 ```
 
-Incentivise users to vote for a specific extended pair, by bribing the said pair.
+Incentivise users to vote for a specific extended pair, by providing them external incentives the said pair.
 
 * `proposal_id` - Unique proposal ID of an active proposal.
 * `extended_pair` - Unique ID of the extended pair to bribe.
 
-## ClaimReward
+## Claim Rewards
 
 ```rust
 ClaimReward {
@@ -118,7 +118,7 @@ vtoken holders are incentivised with more vtoken to avoid their voting power dil
 
 * `proposal_id` - Unique proposal ID for which to rebase.
 
-## RaiseProposal
+## Raise Proposal
 
 ```rust
 RaiseProposal {
@@ -140,7 +140,7 @@ Emission {
 }
 ```
 
-It is a process in which a certain amount of the token (governance token for the app) will be minted after every proposal. The Emission distribution is computed as:
+It is a process in which a certain amount of the token (governance token for the app) will be minted after every proposal (epoch). The Emission distribution is computed as:
 
 * **Emission distribution:** They are distributed to vault owners based on the share of votes received for their respective vault pair id.
 
@@ -154,7 +154,7 @@ It is a process in which a certain amount of the token (governance token for the
 
 * `proposal_id` - Unique proposal ID for which to calculate the emission.
 
-## FoundationRewards
+## Foundation Rewards
 
 ```rust
 FoundationRewards {

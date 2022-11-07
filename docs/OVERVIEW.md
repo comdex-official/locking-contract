@@ -25,7 +25,7 @@ the owner of the tokens will be set to that address. Therefore, the original
 sender will not be able to withdraw or use any other functionality enjoyed by the
 `recipient`.
 
-### Caluculation of vtokens
+### Calculation of vtokens
 
 There are two locking periods available, henceforth referred to as T1 and T2.
 Both locking periods have two values associated with them, *period* and *weight*.
@@ -48,14 +48,14 @@ vHARBOR is calculated as:
 
 ## Voting
 
-This contract allows for voting on a token pair to recieve external incentives.
+This contract allows for voting on a pair to recieve external incentives.
 Only vtoken holders are allowed to vote during an epoch. The weight of a users
 vote is based on the amount of vtoken available at the beginning of the epoch.
 
-## Bribing
+## External Incentives
 
 To incentivise vtoken holders to vote on one token-pair over another, users are
-allowed to bribe that token-pair. The total bribe is distributed among all the
+allowed to bribe that token-pair. The total external incentives is distributed among all the
 voters based on the proportional value of their vote weight over the total vote
 weight.
 
