@@ -12,26 +12,24 @@ pub const VOTEPOWER: SnapshotMap<(&Addr, String), Uint128> = SnapshotMap::new(
     Strategy::EveryBlock,
 );
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct PeriodWeight {
     pub period: u64,
     pub weight: Decimal,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LockingPeriod {
     T1,
     T2,
-    T3,
-    T4,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
-    /// When the tokens are in the vesting period.
+    /// When the tokens are in the locking period.
     Locked,
     /// When the tokens have completed the locking period,
     /// the owner is free to retrieve their tokens.
@@ -45,7 +43,7 @@ pub struct Vtoken {
     pub token: Coin,
     /// amount of vtoken created
     pub vtoken: Coin,
-    /// Locking period i.e. T1..4
+    /// Locking period i.e. T1 or T2
     pub period: LockingPeriod,
     /// Time at which the tokens were locked
     pub start_time: Timestamp,
@@ -56,7 +54,7 @@ pub struct Vtoken {
 }
 
 /// NFT struct for holding the token info
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct TokenInfo {
     /// Owner of the NFT
@@ -66,13 +64,11 @@ pub struct TokenInfo {
 }
 
 /// Contains the four locking periods and the unlock period.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct State {
     pub t1: PeriodWeight,
     pub t2: PeriodWeight,
-    pub t3: PeriodWeight,
-    pub t4: PeriodWeight,
     pub num_tokens: u64,
     pub vesting_contract: Addr,
     pub foundation_addr: Vec<String>,
@@ -82,7 +78,7 @@ pub struct State {
     pub min_lock_amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct TokenSupply {
     // total token in the system.
@@ -95,7 +91,7 @@ pub struct TokenSupply {
 // Holds the internal state
 pub const STATE: Item<State> = Item::new("state");
 // Owner to NFT
-pub const ADMIN: Admin = Admin::new("admin");
+pub const ADMIN: Admin = Admin::new("admin_address");
 
 pub const TOKENS: Map<Addr, TokenInfo> = Map::new("tokens");
 // Total supply of each (vtoken supplied, token deposited)
@@ -130,7 +126,7 @@ pub struct Proposal {
     pub height: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct Emission {
     pub app_id: u64,
     pub total_rewards: u128,
@@ -139,7 +135,7 @@ pub struct Emission {
     pub distributed_rewards: u128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct Vote {
     pub app_id: u64,
     pub extended_pair: u64,

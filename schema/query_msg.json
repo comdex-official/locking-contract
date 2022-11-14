@@ -396,6 +396,36 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "rebase"
+      ],
+      "properties": {
+        "rebase": {
+          "type": "object",
+          "required": [
+            "address",
+            "app_id",
+            "denom"
+          ],
+          "properties": {
+            "address": {
+              "$ref": "#/definitions/Addr"
+            },
+            "app_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "denom": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "definitions": {

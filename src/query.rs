@@ -2,12 +2,13 @@ use std::borrow::Borrow;
 
 use crate::error::ContractError;
 use crate::msg::{
-    IssuedNftResponse, ProposalPairVote, ProposalVoteRespons, QueryMsg, WithdrawableResponse,
+    IssuedNftResponse, ProposalPairVote, ProposalVoteRespons, QueryMsg, RebaseResponse,
+    WithdrawableResponse,
 };
 use crate::state::{
-    Emission, Proposal, State, TokenSupply, Vote, Vtoken, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
-    COMPLETEDPROPOSALS, EMISSION, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, STATE, SUPPLY,
-    TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
+    Emission, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, ADMIN, APPCURRENTPROPOSAL,
+    BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
+    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -77,8 +78,19 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             proposal_id,
             address,
         } => to_binary(&query_proposal_all_up(deps, env, address, proposal_id)?),
+        QueryMsg::Rebase {
+            app_id,
+            address,
+            denom,
+        } => to_binary(&query_rebase_eligible(deps, env, address, app_id, denom)?),
+        QueryMsg::Admin {} => to_binary(&query_admin(deps, env)?),
         _ => panic!("Not implemented"),
     }
+}
+
+pub fn query_admin(deps: Deps<ComdexQuery>, _env: Env) -> StdResult<Option<Addr>> {
+    let admin = ADMIN.get(deps)?;
+    Ok(admin)
 }
 
 pub fn query_emission(
@@ -394,6 +406,71 @@ pub fn calculate_bribe_reward_query(
     Ok(bribe_coins)
 }
 
+pub fn query_rebase_eligible(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    address: Addr,
+    app_id: u64,
+    denom: String,
+) -> StdResult<Vec<RebaseResponse>> {
+    let mut response: Vec<RebaseResponse> = vec![];
+    let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
+        Some(val) => val,
+        None => vec![],
+    };
+    for proposal_id_param in all_proposals {
+        let has_rebased =
+            REBASE_CLAIMED.may_load(deps.storage, (address.clone(), proposal_id_param))?;
+        if has_rebased.is_none() {
+            let proposal = PROPOSAL.load(deps.storage, proposal_id_param)?;
+            if !proposal.emission_completed {
+                continue;
+            } else {
+                let supply = SUPPLY
+                    .may_load_at_height(deps.storage, &denom, proposal.height)?
+                    .unwrap();
+                if supply.token == 0 {
+                    continue;
+                }
+                let total_locked: u128 = supply.token;
+                let total_rebase_amount: u128 = proposal.rebase_distributed;
+                let vtokens = match VTOKENS.may_load_at_height(
+                    deps.storage,
+                    (address.clone(), &denom),
+                    proposal.height,
+                )? {
+                    Some(val) => val,
+                    None => vec![],
+                };
+                if vtokens.is_empty() {
+                    continue;
+                }
+                let mut locked_t1: u128 = 0;
+                let mut locked_t2: u128 = 0;
+
+                for vtoken in vtokens {
+                    match vtoken.period {
+                        LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
+                        LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
+                    }
+                }
+                let sum = locked_t1 + locked_t2;
+                let rebase_amount_param = (Uint128::from(total_rebase_amount)
+                    .checked_mul(Uint128::from(sum))?)
+                .checked_div(Uint128::from(total_locked))?;
+                let rebase_response = RebaseResponse {
+                    proposal_id: proposal_id_param,
+                    rebase_amount: rebase_amount_param,
+                };
+                response.push(rebase_response);
+            }
+        } else {
+            continue;
+        }
+    }
+
+    Ok(response)
+}
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,12 +3,10 @@ use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct InstantiateMsg {
     pub t1: PeriodWeight,
     pub t2: PeriodWeight,
-    pub t3: PeriodWeight,
-    pub t4: PeriodWeight,
     pub voting_period: u64,
     pub vesting_contract: Addr,
     pub foundation_addr: Vec<String>,
@@ -19,7 +17,7 @@ pub struct InstantiateMsg {
     pub min_lock_amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     VoteProposal {
@@ -61,7 +59,7 @@ pub enum ExecuteMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     /// Query the NFT
@@ -129,9 +127,15 @@ pub enum QueryMsg {
         proposal_id: u64,
         address: Addr,
     },
+    Rebase {
+        address: Addr,
+        app_id: u64,
+        denom: String,
+    },
+    Admin {},
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SudoMsg {
     UpdateVestingContract {
@@ -148,8 +152,6 @@ pub enum SudoMsg {
     UpdateLockingPeriod {
         t1: PeriodWeight,
         t2: PeriodWeight,
-        t3: PeriodWeight,
-        t4: PeriodWeight,
     },
     UpdateAdmin {
         admin: Addr,
@@ -159,12 +161,23 @@ pub enum SudoMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MigrateMsg {}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct MigrateMsg {
+    pub admin_address: Addr,
+    pub voting_period: u64,
+    pub vesting_contract: Addr,
+    pub app_id: u64,
+}
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct IssuedNftResponse {
     pub nft: TokenInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct RebaseResponse {
+    pub proposal_id: u64,
+    pub rebase_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
