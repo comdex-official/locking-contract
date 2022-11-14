@@ -409,8 +409,11 @@ UserProposalAllUp {
     address: Addr,
 }
 ```
+
 Query the proposal data for user.
 
+* `proposal_id` - Unique proposal ID.
+* `address` - Address of the user.
 
 ```rust
 ProposalPairVote {
@@ -420,12 +423,14 @@ ProposalPairVote {
     bribe: Vec<Coin>,
 }
 ```
+
 Query the proposal vote for a pair for an user.
 
-* `extended_pair_id` - pair id .
-* `my_vote` - voted weight of user.
-* `total_vote` - total voted weight casted.
-* `bribe` - list of extenal incentives on pair.
+* `extended_pair` - Unique ID of the extended pair for which the user voted.
+* `my_vote` - Vote weight of user.
+* `total_vote` - Total weight of votes cast.
+* `bribe` - List of extenal incentives on pair.
+
 ## Rebase
 
 ```rust
