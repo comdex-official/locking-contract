@@ -3,7 +3,7 @@ use cosmwasm_std::{StdResult};
 use comdex_bindings::{ComdexQuery};
 use cosmwasm_std::{  Deps, Coin};
 use comdex_bindings::{
-     GetAppResponse, GetAssetDataResponse,TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount,GetWhitelistedAssetResponse};
+     GetAppResponse, GetAssetDataResponse,TotalSupplyResponse,GetExtendedPairByAppResponse,GetSurplusRewardAmount,GetWhitelistedAssetResponse,GetPoolByAppResponse};
 use cosmwasm_std::{ QueryRequest};
 
 pub fn query_app_exists(
@@ -71,6 +71,19 @@ pub fn query_extended_pair_by_app(
             }))?;
 
     Ok(ext_pair_response.ext_pair)
+}
+
+pub fn query_pool_by_app(
+    deps: Deps<ComdexQuery>,
+    app_mapping_id_param: u64,
+) -> StdResult<Vec<u64>> {
+    let pool_pair =
+        deps.querier
+            .query::<GetPoolByAppResponse>(&QueryRequest::Custom(ComdexQuery::PoolByApp  {
+                app_id: app_mapping_id_param,
+            }))?;
+
+    Ok(pool_pair.pools)
 }
 
 

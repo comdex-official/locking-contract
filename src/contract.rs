@@ -9,7 +9,7 @@ use std::ops::{Div, Mul};
 use crate::error::ContractError;
 use crate::helpers::{
     get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
-    query_surplus_reward, query_whitelisted_asset,
+    query_surplus_reward, query_whitelisted_asset,query_pool_by_app
 };
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg,SudoMsg};
 use crate::state::{
@@ -1287,10 +1287,19 @@ pub fn raise_proposal(
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //check if app exist
     query_app_exists(deps.as_ref(), app_id)?;
+    let mut pools=query_pool_by_app(deps.as_ref(), 1)?;
+    for i in pools.iter_mut()
+    {
+        *i+=1000000;
+    }
     ////get ext pairs vec from app
-    let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
+    let mut ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
     
     //check no proposal active for app
+    for val in pools
+    {
+        ext_pairs.push(val);
+    }
     let current_app_proposal =(APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?).unwrap_or(0);
 
     // if proposal already exist , check if whether it is in voting period

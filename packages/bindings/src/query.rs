@@ -87,7 +87,10 @@ pub enum ComdexQuery {
     },
     CheckWhitelistedAsset{
         denom: String
-    }
+    },
+    PoolByApp{
+        app_id: u64,
+    },
 }
 
 impl CustomQuery for ComdexQuery {}
@@ -131,6 +134,11 @@ pub struct GetExtendedPairByAppResponse {
     pub ext_pair: Vec<u64>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct GetPoolByAppResponse {
+    pub pools: Vec<u64>,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
