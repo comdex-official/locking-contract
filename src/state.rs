@@ -136,6 +136,21 @@ pub struct Emission {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct Reward {
+    pub id: u64,
+    pub reward: Uint128,
+}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct EmissionVaultPool {
+    pub app_id: u64,
+    pub pool_ids: Vec<u64>,
+    pub vault_ids: Vec<u64>,
+    pub total_emission_rewards: Uint128,
+    pub pool_rewards: Vec<Uint128>,
+    pub vault_rewards: Vec<Uint128>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct Vote {
     pub app_id: u64,
     pub extended_pair: u64,
@@ -143,6 +158,8 @@ pub struct Vote {
 }
 
 pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");
+
+pub const CSWAP_ID: Item<u64> = Item::new("cswap_id");
 
 pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("app_current_proposal");
 
@@ -153,6 +170,8 @@ pub const PROPOSAL: Map<u64, Proposal> = Map::new("proposal");
 pub const BRIBES_BY_PROPOSAL: Map<(u64, u64), Vec<Coin>> = Map::new("bribes_by_proposal");
 
 pub const EMISSION: Map<u64, Emission> = Map::new("emission");
+
+pub const EMISSION_REWARD: Map<u64, EmissionVaultPool> = Map::new("emission_rewards");
 
 pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("voters_vote");
 

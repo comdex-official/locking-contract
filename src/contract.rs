@@ -1,17 +1,17 @@
 use crate::error::ContractError;
 use crate::helpers::{
     get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
-    query_surplus_reward, query_whitelisted_asset,
+    query_pool_by_app, query_surplus_reward, query_whitelisted_asset,
 };
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
 use crate::state::{
-    Emission, LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE,
-    SUPPLY, TOKENS, VTOKENS,
+    EmissionVaultPool, Proposal, Vote, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
+    COMPLETEDPROPOSALS, CSWAP_ID, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL,
+    PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE,
 };
 use crate::state::{
-    Proposal, Vote, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION,
-    MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL,
-    VOTERS_VOTE,
+    LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
+    TOKENS, VTOKENS,
 };
 
 use comdex_bindings::{ComdexMessages, ComdexQuery};
@@ -134,9 +134,20 @@ pub fn execute(
         ExecuteMsg::RaiseProposal { app_id } => {
             //check if app exist
             query_app_exists(deps.as_ref(), app_id)?;
-            ////get ext pairs vec from app
-            let ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
 
+            let cswap_id = CSWAP_ID.load(deps.storage)?;
+
+            let mut pools = query_pool_by_app(deps.as_ref(), cswap_id)?;
+
+            for i in pools.iter_mut() {
+                *i += 1000000;
+            }
+
+            ////get ext pairs vec from app
+            let mut ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
+            for val in pools {
+                ext_pairs.push(val);
+            }
             raise_proposal(deps, env, info, app_id, ext_pairs)
         }
         ExecuteMsg::Bribe {
@@ -1107,12 +1118,22 @@ pub fn emission(
     // mint and distribute to vault owner  based vote portion
     let ext_pair = proposal.extended_pair.clone();
     let mut votes: Vec<Uint128> = vec![];
+    let mut extd_pair: Vec<u64> = vec![];
+    let mut votes_pool: Vec<Uint128> = vec![];
+    let mut pool_ids: Vec<u64> = vec![];
     let mut total_vote: Uint128 = Uint128::zero();
     for i in ext_pair {
         let vote = PROPOSALVOTE
             .load(deps.storage, (proposal_id, i))
             .unwrap_or_else(|_| Uint128::from(0_u32));
-        votes.push(vote);
+        if Uint128::from(i).div(Uint128::from(1000000_u64)) == Uint128::zero() {
+            votes.push(vote);
+            extd_pair.push(i);
+        } else {
+            let pool_id = i % 1000000;
+            votes_pool.push(vote);
+            pool_ids.push(pool_id);
+        }
         total_vote += vote;
     }
 
@@ -1131,18 +1152,62 @@ pub fn emission(
     emission.rewards_pending -= reward_emission.u128();
     emission.distributed_rewards += reward_emission.u128();
 
+    let pool_votes: Uint128 = votes_pool.iter().sum();
+    let vault_votes: Uint128 = votes.iter().sum();
+    let pools_share = pool_votes
+        .mul(Uint128::from(proposal.emission_distributed))
+        .div(total_vote);
+    let vault_share = Uint128::from(proposal.emission_distributed) - pools_share;
+    let mut pool_rewards: Vec<Uint128> = vec![];
+    let mut vault_rewards: Vec<Uint128> = vec![];
+    for votes in votes_pool.iter() {
+        if pool_votes.is_zero() {
+            break;
+        }
+        let reward = votes.mul(pools_share).div(pool_votes);
+        pool_rewards.push(reward);
+    }
+
+    for vote in votes.iter() {
+        if vault_votes.is_zero() {
+            break;
+        }
+        let reward = vote.mul(vault_share).div(vault_votes);
+        vault_rewards.push(reward);
+    }
+
+    let emission_reward = EmissionVaultPool {
+        app_id: app_id,
+        pool_ids: pool_ids.clone(),
+        vault_ids: extd_pair.clone(),
+        total_emission_rewards: Uint128::from(proposal.emission_distributed),
+        pool_rewards: pool_rewards,
+        vault_rewards: vault_rewards,
+    };
+
+    EMISSION_REWARD.save(deps.storage, proposal_id, &emission_reward)?;
     let surplus = query_surplus_reward(deps.as_ref(), app_id, state.surplus_asset_id)?;
     proposal.total_surplus = surplus.clone();
     EMISSION.save(deps.storage, proposal.app_id, &emission)?;
     PROPOSAL.save(deps.storage, proposal_id, &proposal)?;
+
     let mut msg: Vec<ComdexMessages> = vec![];
     let app_id_param = app_id;
 
     let emission_msg = ComdexMessages::MsgEmissionRewards {
         app_id: app_id_param,
-        amount: Uint128::from(proposal.emission_distributed),
-        extended_pair: proposal.extended_pair,
+        amount: vault_share,
+        extended_pair: extd_pair,
         voting_ratio: votes,
+    };
+
+    let cswap_id = CSWAP_ID.load(deps.storage)?;
+    let emission_msg_pools = ComdexMessages::MsgEmissionPoolRewards {
+        app_id: app_id,
+        cswap_app_id: cswap_id,
+        amount: pools_share,
+        pools: pool_ids,
+        voting_ratio: votes_pool,
     };
 
     let rebase_msg = ComdexMessages::MsgRebaseMint {
@@ -1158,7 +1223,12 @@ pub fn emission(
     };
 
     if total_vote != Uint128::zero() {
-        msg.push(emission_msg);
+        if vault_votes.ne(&Uint128::zero()) {
+            msg.push(emission_msg);
+        }
+        if pool_votes.ne(&Uint128::zero()) {
+            msg.push(emission_msg_pools);
+        }
     }
     msg.push(rebase_msg);
 
@@ -1397,7 +1467,7 @@ pub fn raise_proposal(
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     let ver = cw2::get_contract_version(deps.storage)?;
     // ensure we are migrating from an allowed contract
     if ver.contract != CONTRACT_NAME {
@@ -1407,12 +1477,10 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     if ver.version.as_str() > CONTRACT_VERSION {
         return Err(StdError::generic_err("Cannot upgrade from a newer version").into());
     }
-
+    CSWAP_ID.save(deps.storage, &msg.cswap_id)?;
     // set the new version
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     //do any desired state migrations...
-    
-
 
     Ok(Response::default())
 }
@@ -1486,7 +1554,7 @@ mod tests {
     use super::*;
     use crate::state::Emission;
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError, Timestamp};
+    use cosmwasm_std::{coin, coins, Addr, CosmosMsg, OwnedDeps, StdError};
 
     const DENOM: &str = "TKN";
     /// Returns default InstantiateMsg with each value in seconds.
@@ -2754,15 +2822,47 @@ mod tests {
         let info = mock_info("admin", &coins(100, DENOM));
 
         let imsg = init_msg();
-        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg);
+        instantiate(deps.as_mut(), env.clone(), info.clone(), imsg).unwrap();
 
-        let msg = ExecuteMsg::RaiseProposal { app_id: 1 };
         let result =
             raise_proposal(deps.as_mut(), env.clone(), info.clone(), 1, vec![1, 2, 3]).unwrap_err();
+        println!("Now {:?} will print!", result);
+        println!("Now {:?} will print!", info);
+
         match result {
             ContractError::FundsNotAllowed {} => {}
             e => panic!("{:?}", e),
         };
+    }
+
+    #[test]
+    fn pools_split() {
+        let ext_pair: Vec<u64> = vec![1, 2, 3, 4, 1000001, 1000002, 1000003, 1000004];
+        let mut extd_pair: Vec<u64> = vec![];
+        let mut pool_ids: Vec<u64> = vec![];
+        for i in ext_pair {
+            if Uint128::from(i).div(Uint128::from(1000000_u64)) == Uint128::zero() {
+                extd_pair.push(i);
+            } else {
+                let pool_id = i % 1000000;
+                pool_ids.push(pool_id);
+            }
+        }
+        assert_eq!(extd_pair, vec![1, 2, 3, 4]);
+        assert_eq!(pool_ids, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn emission_split() {
+        let emission_distributed: u128 = 10000000;
+        let total_vote: Uint128 = Uint128::from(500_u128);
+        let pool_vote: Uint128 = Uint128::from(400_u128);
+        let pools_share = pool_vote
+            .mul(Uint128::from(emission_distributed))
+            .div(total_vote);
+        let vault_share = Uint128::from(emission_distributed) - pools_share;
+        assert_eq!(pools_share, Uint128::from(8000000_u128));
+        assert_eq!(vault_share, Uint128::from(2000000_u128));
     }
 
     #[test]
@@ -2816,7 +2916,7 @@ mod tests {
         env.block.height += 1;
         env.block.time = env.block.time.plus_seconds(10);
 
-        let result = vote_proposal(
+        let _result = vote_proposal(
             deps.as_mut(),
             env.clone(),
             info.clone(),

@@ -6,9 +6,10 @@ use crate::msg::{
     WithdrawableResponse,
 };
 use crate::state::{
-    Emission, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, ADMIN, APPCURRENTPROPOSAL,
-    BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
-    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
+    Emission, EmissionVaultPool, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, ADMIN,
+    APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION, EMISSION_REWARD,
+    MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY, TOKENS,
+    VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -84,6 +85,10 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             denom,
         } => to_binary(&query_rebase_eligible(deps, env, address, app_id, denom)?),
         QueryMsg::Admin {} => to_binary(&query_admin(deps, env)?),
+        QueryMsg::EmissionRewards { proposal_id } => {
+            to_binary(&query_proposal_rewards(deps, env, proposal_id)?)
+        }
+
         _ => panic!("Not implemented"),
     }
 }
@@ -215,6 +220,15 @@ pub fn query_proposal(
     proposal_id: u64,
 ) -> StdResult<Option<Proposal>> {
     let supply = PROPOSAL.may_load(deps.storage, proposal_id)?;
+    Ok(supply)
+}
+
+pub fn query_proposal_rewards(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    proposal_id: u64,
+) -> StdResult<Option<EmissionVaultPool>> {
+    let supply = EMISSION_REWARD.may_load(deps.storage, proposal_id)?;
     Ok(supply)
 }
 

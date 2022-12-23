@@ -116,8 +116,14 @@ pub enum ComdexMessages {
         amount :Uint128,
         extended_pair : Vec<u64>,
         voting_ratio: Vec<Uint128>
-    }
-,
+    },
+    MsgEmissionPoolRewards {
+        app_id: u64,
+        cswap_app_id: u64,
+        amount :Uint128,
+        pools : Vec<u64>,
+        voting_ratio: Vec<Uint128>
+    },
     MsgFoundationEmission {
     app_id: u64,
     amount :Uint128,
