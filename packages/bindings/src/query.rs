@@ -87,7 +87,10 @@ pub enum ComdexQuery {
     },
     CheckWhitelistedAsset{
         denom: String
-    }
+    },
+    GetPoolByApp{
+        app_id: u64,
+    },
 }
 
 impl CustomQuery for ComdexQuery {}
@@ -143,4 +146,10 @@ pub struct GetSurplusRewardAmount{
 #[serde(rename_all = "snake_case")]
 pub struct GetWhitelistedAssetResponse{
     pub found: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct GetPoolByAppResponse {
+    pub pools: Vec<u64>,
 }

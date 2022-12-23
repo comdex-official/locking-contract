@@ -1,7 +1,7 @@
 use comdex_bindings::ComdexQuery;
 use comdex_bindings::{
-    GetAppResponse, GetAssetDataResponse, GetExtendedPairByAppResponse, GetSurplusRewardAmount,
-    GetWhitelistedAssetResponse, TotalSupplyResponse,
+    GetAppResponse, GetAssetDataResponse, GetExtendedPairByAppResponse, GetPoolByAppResponse,
+    GetSurplusRewardAmount, GetWhitelistedAssetResponse, TotalSupplyResponse,
 };
 use cosmwasm_std::QueryRequest;
 use cosmwasm_std::StdResult;
@@ -101,4 +101,17 @@ pub fn query_whitelisted_asset(deps: Deps<ComdexQuery>, asset_denom: String) -> 
         ))?;
 
     Ok(response.found)
+}
+
+pub fn query_pool_by_app(
+    deps: Deps<ComdexQuery>,
+    app_mapping_id_param: u64,
+) -> StdResult<Vec<u64>> {
+    let pool_pair = deps
+        .querier
+        .query::<GetPoolByAppResponse>(&QueryRequest::Custom(ComdexQuery::GetPoolByApp {
+            app_id: app_mapping_id_param,
+        }))?;
+
+    Ok(pool_pair.pools)
 }
