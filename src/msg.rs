@@ -57,6 +57,13 @@ pub enum ExecuteMsg {
     FoundationRewards {
         proposal_id: u64,
     },
+    Delegate {
+        delegation_address: u64,
+    },
+    Undelegate {
+        delegation_address: u64,
+    },
+
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
@@ -142,9 +149,9 @@ pub enum QueryMsg {
     },
     ProjectedEmission {
         proposal_id: u64,
-        app_id:u64,
+        app_id: u64,
         gov_token_denom: String,
-        gov_token_id:u64
+        gov_token_id: u64,
     },
 }
 

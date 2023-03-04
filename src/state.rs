@@ -157,6 +157,23 @@ pub struct Vote {
     pub vote_weight: u128,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct Delegation {
+    pub delegated_to: Addr,
+    pub delegated_at: Timestamp,
+    pub delegation_end_at: Timestamp,
+    pub delegated: u128
+
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct DelegationInfo {
+    pub delegation_name: String,
+    pub total_delegated: u128
+  
+}
+
+
 pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");
 
 pub const CSWAP_ID: Item<u64> = Item::new("cswap_id");
@@ -182,3 +199,19 @@ pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max_proposal_cla
 pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed_proposals");
 
 pub const REBASE_CLAIMED: Map<(Addr, u64), bool> = Map::new("rebase_claimed");
+
+pub const DELEGATED: SnapshotMap<Addr, Delegation> = SnapshotMap::new(
+    "delegated",
+    "voters_checkpoints",
+    "voters_changelogs",
+    Strategy::EveryBlock,
+);
+
+pub const DELEGATION_INFO: SnapshotMap<Addr, DelegationInfo> = SnapshotMap::new(
+    "delegation_info",
+    "voters_checkpoints",
+    "voters_changelogs",
+    Strategy::EveryBlock,
+);
+
+

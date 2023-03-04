@@ -10,7 +10,7 @@ use crate::state::{
     Emission, EmissionVaultPool, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, ADMIN,
     APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION, EMISSION_REWARD,
     MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY, TOKENS,
-    VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
+    VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -99,9 +99,19 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             address,
             proposal_id,
         )?),
-        QueryMsg::ProjectedEmission { proposal_id ,app_id,gov_token_denom,gov_token_id} => {
-            to_binary(&query_emission_proposal(deps, env, proposal_id,app_id,gov_token_denom,gov_token_id)?)
-        }
+        QueryMsg::ProjectedEmission {
+            proposal_id,
+            app_id,
+            gov_token_denom,
+            gov_token_id,
+        } => to_binary(&query_emission_proposal(
+            deps,
+            env,
+            proposal_id,
+            app_id,
+            gov_token_denom,
+            gov_token_id,
+        )?),
 
         _ => panic!("Not implemented"),
     }

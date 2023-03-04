@@ -7,7 +7,7 @@ use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
 use crate::state::{
     EmissionVaultPool, Proposal, Vote, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
     COMPLETEDPROPOSALS, CSWAP_ID, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL,
-    PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE,
+    PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE,DELEGATED,DELEGATION_INFO,Delegation,DelegationInfo
 };
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
@@ -199,6 +199,162 @@ pub fn execute(
         }
         ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
     }
+}
+
+
+//// delegation function/////
+/// 
+/// 
+/// /////
+
+pub fn delegate(
+    deps: DepsMut<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    delegation_address: Addr,
+    denom: String
+)-> Result<Response<ComdexMessages>, ContractError> {
+    
+    //// check if delegation_address exists////
+    let delegation_info=DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
+    if delegation_info.is_none(){
+        return Err(ContractError::CustomError {
+            val: "Emission calculation did not take place to initiate foundation calculation"
+                .to_string(),
+        });
+    }
+    
+    ///// check if sender is not delegated
+    if info.sender.clone() == delegation_address
+    {
+        return Err(ContractError::CustomError {
+            val: "Emission calculation did not take place to initiate foundation calculation"
+                .to_string(),
+        });
+    }
+
+    ////// check if already delegated ///////
+    let delegation=DELEGATED.may_load(deps.storage, info.sender.clone())?;
+    if delegation.is_some(){
+        return Err(ContractError::CustomError {
+            val: "Emission calculation did not take place to initiate foundation calculation"
+                .to_string(),
+        });
+    }
+
+
+    ///// get voting power
+    //balance of owner for the for denom for voting
+
+    let vtokens = VTOKENS.may_load_at_height(
+        deps.storage,
+        (info.sender.clone(), &denom),
+        env.block.height,
+    )?;
+
+    if vtokens.is_none() {
+        return Err(ContractError::CustomError {
+            val: "No tokens locked to perform voting on proposals".to_string(),
+        });
+    }
+
+    let vtokens = vtokens.unwrap();
+    // calculate voting power for the the proposal
+    let mut vote_power: u128 = 0;
+
+    for vtoken in vtokens {
+        vote_power += vtoken.vtoken.amount.u128();
+    }
+    
+
+
+    let delegation = Delegation{
+        delegated_to : delegation_address,
+        delegated_at : env.block.time,
+        delegation_end_at : env.block.time.plus_seconds(86400),///////set as 1 day 
+        delegated: vote_power,
+    };
+
+    DELEGATED.save(deps.storage, info.sender.clone(),&delegation,env.block.height)?;
+    let mut delegation_data =delegation_info.unwrap();
+    delegation_data.total_delegated+=vote_power;
+    DELEGATED.save(deps.storage, info.sender.clone(),&delegation,env.block.height)?;
+
+
+    Ok(Response::new()
+        .add_attribute("action", "delegate")
+        .add_attribute("from", info.sender))
+}
+
+pub fn undelegate(
+    deps: DepsMut<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    delegation_address: Addr,
+    denom: String
+)-> Result<Response<ComdexMessages>, ContractError> {
+    
+    //// check if delegation_address exists////
+    let delegation_info=DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
+    if delegation_info.is_none(){
+        return Err(ContractError::CustomError {
+            val: "Emission calculation did not take place to initiate foundation calculation"
+                .to_string(),
+        });
+    }
+    
+
+    ////// check if already delegated ///////
+    let delegation=DELEGATED.may_load(deps.storage, info.sender.clone())?;
+    if delegation.is_none(){
+        return Err(ContractError::CustomError {
+            val: "No active delegation present to undelegate"
+                .to_string(),
+        });
+    }
+
+
+    ///// get voting power
+    //balance of owner for the for denom for voting
+
+    let vtokens = VTOKENS.may_load_at_height(
+        deps.storage,
+        (info.sender.clone(), &denom),
+        env.block.height,
+    )?;
+
+    if vtokens.is_none() {
+        return Err(ContractError::CustomError {
+            val: "No tokens locked to perform voting on proposals".to_string(),
+        });
+    }
+
+    let vtokens = vtokens.unwrap();
+    // calculate voting power for the the proposal
+    let mut vote_power: u128 = 0;
+
+    for vtoken in vtokens {
+        vote_power += vtoken.vtoken.amount.u128();
+    }
+    
+
+
+    let delegation = Delegation{
+        delegated_to : delegation_address,
+        delegated_at : env.block.time,
+        delegation_end_at : env.block.time.plus_seconds(86400),///////set as 1 day 
+        delegated: vote_power,
+    };
+
+    DELEGATED.remove(deps.storage, info.sender.clone(),&delegation)?;
+    let mut delegation_data =delegation_info.unwrap();
+    delegation_data.total_delegated-=vote_power;
+    DELEGATED.save(deps.storage, info.sender.clone(),&delegation,env.block.height)?;
+
+
+    Ok(Response::new()
+        .add_attribute("action", "undelegate")
+        .add_attribute("from", info.sender))
 }
 
 pub fn emission_foundation(
