@@ -127,6 +127,10 @@ pub enum QueryMsg {
         proposal_id: u64,
         address: Addr,
     },
+    UserProposalAllUpPool {
+        proposal_id: u64,
+        address: Addr,
+    },
     Rebase {
         address: Addr,
         app_id: u64,
@@ -135,6 +139,12 @@ pub enum QueryMsg {
     Admin {},
     EmissionRewards {
         proposal_id: u64,
+    },
+    ProjectedEmission {
+        proposal_id: u64,
+        app_id:u64,
+        gov_token_denom: String,
+        gov_token_id:u64
     },
 }
 

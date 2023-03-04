@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 
 use crate::error::ContractError;
+use crate::helpers::get_token_supply;
 use crate::msg::{
     IssuedNftResponse, ProposalPairVote, ProposalVoteRespons, QueryMsg, RebaseResponse,
     WithdrawableResponse,
@@ -13,7 +14,8 @@ use crate::state::{
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
-    entry_point, to_binary, Addr, Binary, Coin, Decimal, Deps, Env, StdError, StdResult, Uint128,
+    entry_point, to_binary, Addr, Binary, Coin, Decimal, Deps, Env, QueryRequest, StdError,
+    StdResult, Uint128, WasmQuery,
 };
 use std::ops::{Div, Mul};
 const MAX_LIMIT: u32 = 30;
@@ -88,6 +90,18 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::EmissionRewards { proposal_id } => {
             to_binary(&query_proposal_rewards(deps, env, proposal_id)?)
         }
+        QueryMsg::UserProposalAllUpPool {
+            proposal_id,
+            address,
+        } => to_binary(&query_proposal_all_up_pool(
+            deps,
+            env,
+            address,
+            proposal_id,
+        )?),
+        QueryMsg::ProjectedEmission { proposal_id ,app_id,gov_token_denom,gov_token_id} => {
+            to_binary(&query_emission_proposal(deps, env, proposal_id,app_id,gov_token_denom,gov_token_id)?)
+        }
 
         _ => panic!("Not implemented"),
     }
@@ -105,6 +119,44 @@ pub fn query_emission(
 ) -> StdResult<Option<Emission>> {
     let supply = EMISSION.may_load(deps.storage, proposal_id)?;
     Ok(supply)
+}
+
+pub fn query_emission_proposal(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    proposal_id: u64,
+    app_id: u64,
+    gov_token_denom: String,
+    gov_token_id: u64,
+) -> StdResult<u128> {
+    let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+
+    let vtokens = SUPPLY
+        .may_load_at_height(deps.storage, &gov_token_denom, proposal.height)?
+        .unwrap();
+
+    let total_v_token = vtokens.vtoken;
+    let total_weight = get_token_supply(deps, app_id, gov_token_id)?;
+    let state = STATE.load(deps.storage)?;
+    let query_msg = QueryMsg::VestedTokens {
+        denom: gov_token_denom,
+    };
+    let query_response: Uint128 = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: state.vesting_contract.to_string(),
+        msg: to_binary(&query_msg).unwrap(),
+    }))?;
+    let circulating_supply =
+        Uint128::from(total_weight) - query_response - Uint128::from(vtokens.token);
+
+    let percentage_locked =
+        Decimal::raw(total_v_token).div(Decimal::raw(circulating_supply.u128() + total_v_token));
+    let emission = EMISSION.load(deps.storage, proposal.app_id)?;
+    let reward_emission = Uint128::from(emission.rewards_pending) * emission.emission_rate;
+    let effective_emission = reward_emission.mul(Decimal::one() - percentage_locked);
+    let emission_distributed =
+        effective_emission.u128() - (state.foundation_percentage.mul(effective_emission)).u128();
+
+    Ok(emission_distributed)
 }
 
 pub fn query_extendedpairvote(
@@ -263,6 +315,55 @@ pub fn query_proposal_all_up(
     let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
     let mut proposal_pair_data_allup: Vec<ProposalPairVote> = vec![];
     for i in proposal.extended_pair {
+        if Uint128::from(i).div(Uint128::from(1000000_u64)) == Uint128::from(1_u64) {
+            continue;
+        }
+        let extended_pair_total_vote = PROPOSALVOTE
+            .load(deps.storage, (proposal_id, i))
+            .unwrap_or(Uint128::zero());
+        let user_vote =
+            match VOTERSPROPOSAL.may_load(deps.storage, (address.clone(), proposal_id))? {
+                None => Uint128::zero(),
+                Some(vote) => {
+                    if vote.extended_pair == i {
+                        Uint128::from(vote.vote_weight)
+                    } else {
+                        Uint128::zero()
+                    }
+                }
+            };
+        let bribe_param = BRIBES_BY_PROPOSAL
+            .load(deps.storage, (proposal_id, i))
+            .unwrap_or_default();
+
+        let proposal_pair_vote = ProposalPairVote {
+            extended_pair_id: i,
+            my_vote: user_vote,
+            total_vote: extended_pair_total_vote,
+            bribe: bribe_param,
+        };
+        proposal_pair_data_allup.push(proposal_pair_vote);
+    }
+
+    Ok(ProposalVoteRespons {
+        proposal_pair_data: proposal_pair_data_allup,
+    })
+}
+
+pub fn query_proposal_all_up_pool(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    address: Addr,
+    proposal_id: u64,
+) -> StdResult<ProposalVoteRespons> {
+    deps.api.addr_validate(&address.clone().into_string())?;
+
+    let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
+    let mut proposal_pair_data_allup: Vec<ProposalPairVote> = vec![];
+    for i in proposal.extended_pair {
+        if Uint128::from(i).div(Uint128::from(1000000_u64)) == Uint128::zero() {
+            continue;
+        }
         let extended_pair_total_vote = PROPOSALVOTE
             .load(deps.storage, (proposal_id, i))
             .unwrap_or(Uint128::zero());
