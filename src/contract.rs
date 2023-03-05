@@ -208,7 +208,7 @@ pub fn execute(
 /// /////
 
 pub fn delegate(
-    deps: DepsMut<ComdexQuery>,
+    deps: DepsMut<ComdexQuery>, //indicates how many dependencies have been delegated so far
     env: Env,
     info: MessageInfo,
     delegation_address: Addr,
@@ -304,11 +304,20 @@ pub fn undelegate(
     }
     
 
-    ////// check if already delegated ///////
+    ////// check if delegation is present ///////
     let delegation=DELEGATED.may_load(deps.storage, info.sender.clone())?;
     if delegation.is_none(){
         return Err(ContractError::CustomError {
             val: "No active delegation present to undelegate"
+                .to_string(),
+        });
+    }
+
+    //// check if UnDelegation time has reached
+    let delegation=delegation.unwrap();
+    if delegation.delegation_end_at > env.block.time{
+        return Err(ContractError::CustomError {
+            val: "Yet to reach UnDelegation time"
                 .to_string(),
         });
     }
