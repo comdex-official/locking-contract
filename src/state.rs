@@ -152,8 +152,15 @@ pub struct EmissionVaultPool {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct Vote {
-    pub app_id: u64,
+    pub voting_power_total: u128,
+    pub total_voted_ratio: Decimal,
+    pub votes: Vec<VotePair>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct VotePair {
     pub extended_pair: u64,
+    pub vote_ratio: Decimal,
     pub vote_weight: u128,
 }
 
@@ -162,17 +169,14 @@ pub struct Delegation {
     pub delegated_to: Addr,
     pub delegated_at: Timestamp,
     pub delegation_end_at: Timestamp,
-    pub delegated: u128
-
+    pub delegated: u128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct DelegationInfo {
     pub delegation_name: String,
-    pub total_delegated: u128
-  
+    pub total_delegated: u128,
 }
-
 
 pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");
 
@@ -213,5 +217,3 @@ pub const DELEGATION_INFO: SnapshotMap<Addr, DelegationInfo> = SnapshotMap::new(
     "voters_changelogs",
     Strategy::EveryBlock,
 );
-
-

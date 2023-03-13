@@ -10,7 +10,7 @@ use crate::state::{
     Emission, EmissionVaultPool, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, ADMIN,
     APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION, EMISSION_REWARD,
     MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY, TOKENS,
-    VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS
+    VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -492,42 +492,49 @@ pub fn calculate_bribe_reward_query(
             None => continue,
         };
 
-        let total_vote_weight = PROPOSALVOTE
-            .load(deps.storage, (proposalid, vote.extended_pair))?
-            .u128();
-        let total_bribe =
-            match BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposalid, vote.extended_pair))? {
+        for pair in vote.votes {
+            let total_vote_weight = PROPOSALVOTE
+                .load(deps.storage, (proposalid, pair.extended_pair))?
+                .u128();
+
+            let total_bribe = match BRIBES_BY_PROPOSAL
+                .may_load(deps.storage, (proposalid, pair.extended_pair))?
+            {
                 Some(val) => val,
                 None => vec![],
             };
 
-        let mut claimable_bribe: Vec<Coin> = vec![];
+            let mut claimable_bribe: Vec<Coin> = vec![];
+            for coin in total_bribe.clone() {
+                let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
+                    .div(Decimal::new(Uint128::from(total_vote_weight))))
+                .mul(coin.amount);
+                let claimable_coin = Coin {
+                    amount: claimable_amount,
+                    denom: coin.denom,
+                };
+                claimable_bribe.push(claimable_coin);
+            }
 
-        for coin in total_bribe.clone() {
-            let claimable_amount = (Decimal::new(Uint128::from(vote.vote_weight))
-                .div(Decimal::new(Uint128::from(total_vote_weight))))
-            .mul(coin.amount);
-            let claimable_coin = Coin {
-                amount: claimable_amount,
-                denom: coin.denom,
-            };
-            claimable_bribe.push(claimable_coin);
-        }
-        for bribr_deposited in claimable_bribe.clone() {
-            match bribe_coins
-                .iter_mut()
-                .find(|p| bribr_deposited.denom == p.denom)
-            {
-                Some(pivot) => {
-                    pivot.denom = bribr_deposited.denom;
-                    pivot.amount += bribr_deposited.amount;
-                }
-                None => {
-                    bribe_coins.push(bribr_deposited);
+            for bribe_deposited in claimable_bribe.clone() {
+                match bribe_coins
+                    .iter_mut()
+                    .find(|p| bribe_deposited.denom == p.denom)
+                {
+                    Some(pivot) => {
+                        pivot.denom = bribe_deposited.denom;
+                        pivot.amount += bribe_deposited.amount;
+                    }
+                    None => {
+                        bribe_coins.push(bribe_deposited);
+                    }
                 }
             }
         }
     }
+
+    //// send bank message to band
+
     Ok(bribe_coins)
 }
 

@@ -15,6 +15,7 @@ pub struct InstantiateMsg {
     pub emission: Emission,
     pub admin: Addr,
     pub min_lock_amount: Uint128,
+    pub cswap_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
@@ -23,7 +24,8 @@ pub enum ExecuteMsg {
     VoteProposal {
         app_id: u64,
         proposal_id: u64,
-        extended_pair: u64,
+        extended_pair: Vec<u64>,
+        ratio: Vec<Decimal>,
     },
     RaiseProposal {
         app_id: u64,
@@ -54,16 +56,14 @@ pub enum ExecuteMsg {
         locking_period: LockingPeriod,
         denom: String,
     },
-    FoundationRewards {
-        proposal_id: u64,
-    },
     Delegate {
-        delegation_address: u64,
+        delegation_address: Addr,
+        denom: String,
     },
     Undelegate {
-        delegation_address: u64,
+        delegation_address: Addr,
+        denom: String,
     },
-
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
