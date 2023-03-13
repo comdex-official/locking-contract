@@ -170,12 +170,16 @@ pub struct Delegation {
     pub delegated_at: Timestamp,
     pub delegation_end_at: Timestamp,
     pub delegated: u128,
+    pub delegation_ratio: Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct DelegationInfo {
+    pub delegation_address: Addr,
     pub delegation_name: String,
     pub total_delegated: u128,
+    pub fee_collected: Addr,
+
 }
 
 pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");

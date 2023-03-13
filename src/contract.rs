@@ -8,7 +8,7 @@ use crate::state::{
     Delegation, DelegationInfo, EmissionVaultPool, Proposal, Vote, VotePair, ADMIN,
     APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, CSWAP_ID, DELEGATED,
     DELEGATION_INFO, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT,
-    PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE,
+    PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE
 };
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
@@ -204,10 +204,10 @@ pub fn execute(
             denom,
         } => handle_transfer(deps, env, info, recipient, locking_period, denom),
         ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
-        ExecuteMsg::Delegate { delegation_address ,denom} => {
+        ExecuteMsg::Delegate { delegation_address ,denom,ratio} => {
             delegate(deps, env, info, delegation_address,denom)
         },
-        ExecuteMsg::Undelegate { delegation_address,denom } => {
+        ExecuteMsg::Undelegate { delegation_address,denom,ratio } => {
             undelegate(deps, env, info, delegation_address, denom)
         }
     }
@@ -226,7 +226,7 @@ pub fn delegate(
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
     if delegation_info.is_none() {
         return Err(ContractError::CustomError {
-            val: "Emission calculation did not take place to initiate foundation calculation"
+            val: "Delegaion info not found"
                 .to_string(),
         });
     }
@@ -234,7 +234,7 @@ pub fn delegate(
     ///// check if sender is not delegated
     if info.sender.clone() == delegation_address {
         return Err(ContractError::CustomError {
-            val: "Emission calculation did not take place to initiate foundation calculation"
+            val: "Sender is not allowed to self-delegated"
                 .to_string(),
         });
     }
@@ -243,7 +243,7 @@ pub fn delegate(
     let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
     if delegation.is_some() {
         return Err(ContractError::CustomError {
-            val: "Emission calculation did not take place to initiate foundation calculation"
+            val: "Already Delegated"
                 .to_string(),
         });
     }
@@ -1668,7 +1668,7 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, Co
 }
 
 #[entry_point]
-pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, ContractError> {
+pub fn sudo(deps: DepsMut, env: Env, msg: SudoMsg) -> Result<Response, ContractError> {
     match msg {
         SudoMsg::UpdateVestingContract { address } => {
             let mut state = STATE.load(deps.storage)?;
@@ -1724,6 +1724,19 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             let mut state = STATE.load(deps.storage)?;
             state.voting_period = voting_period;
             STATE.save(deps.storage, &state)?;
+            Ok(Response::new())
+        }
+        SudoMsg::AddNewDelegation { delegation_info } => {
+            let mut delegation = DELEGATION_INFO.may_load(deps.storage, delegation_info.delegation_address)?;
+            //// see all checks in the delegation_info
+            if delegation.is_some() {
+                return Err(ContractError::CustomError {
+                    val: "Delegation already exists".to_string(),
+                });
+            }
+
+            DELEGATION_INFO.save(deps.storage, delegation_info.delegation_address, &delegation_info,env.block.height)?;
+
             Ok(Response::new())
         }
     }
