@@ -8,7 +8,7 @@ use crate::state::{
     Delegation, DelegationInfo, EmissionVaultPool, Proposal, Vote, VotePair, ADMIN,
     APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, CSWAP_ID, DELEGATED,
     DELEGATION_INFO, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT,
-    PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE
+    PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE,
 };
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
@@ -114,7 +114,6 @@ pub fn execute(
             extended_pair,
             ratio,
         } => {
-
             //check if app exist
             let app_response = query_app_exists(deps.as_ref(), app_id)?;
 
@@ -173,9 +172,10 @@ pub fn execute(
             bribe_proposal(deps, env, info, proposal_id, extended_pair, bribe_coin)
         }
         ExecuteMsg::ClaimReward { app_id } => claim_rewards(deps, env, info, app_id),
-        ExecuteMsg::Emission { proposal_id } => {emission(deps, env, info, proposal_id);
+        ExecuteMsg::Emission { proposal_id } => {
+            emission(deps, env, info, proposal_id);
             emission_foundation(deps, env, info, proposal_id)
-        },
+        }
         ExecuteMsg::Lock {
             app_id,
             locking_period,
@@ -204,12 +204,15 @@ pub fn execute(
             denom,
         } => handle_transfer(deps, env, info, recipient, locking_period, denom),
         ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
-        ExecuteMsg::Delegate { delegation_address ,denom,ratio} => {
-            delegate(deps, env, info, delegation_address,denom)
-        },
-        ExecuteMsg::Undelegate { delegation_address,denom,ratio } => {
-            undelegate(deps, env, info, delegation_address, denom)
-        }
+        ExecuteMsg::Delegate {
+            delegation_address,
+            denom,
+            ratio,
+        } => delegate(deps, env, info, delegation_address, denom, ratio),
+        ExecuteMsg::Undelegate {
+            delegation_address,
+            denom,
+        } => undelegate(deps, env, info, delegation_address, denom),
     }
 }
 
@@ -221,30 +224,20 @@ pub fn delegate(
     info: MessageInfo,
     delegation_address: Addr,
     denom: String,
+    ratio: Decimal,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //// check if delegation_address exists////
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
     if delegation_info.is_none() {
         return Err(ContractError::CustomError {
-            val: "Delegaion info not found"
-                .to_string(),
+            val: "Delegation info not found".to_string(),
         });
     }
 
     ///// check if sender is not delegated
     if info.sender.clone() == delegation_address {
         return Err(ContractError::CustomError {
-            val: "Sender is not allowed to self-delegated"
-                .to_string(),
-        });
-    }
-
-    ////// check if already delegated ///////
-    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
-    if delegation.is_some() {
-        return Err(ContractError::CustomError {
-            val: "Already Delegated"
-                .to_string(),
+            val: "Sender is not allowed to self-delegated".to_string(),
         });
     }
 
@@ -271,31 +264,54 @@ pub fn delegate(
         vote_power += vtoken.vtoken.amount.u128();
     }
 
-    let delegation = Delegation {
-        delegated_to: delegation_address,
-        delegated_at: env.block.time,
-        delegation_end_at: env.block.time.plus_seconds(86400), ///////set as 1 day
-        delegated: vote_power,
-    };
+    let total_delegated_amount = ratio.mul(Uint128::from(vote_power)).u128();
+    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?.unwrap();
 
-    DELEGATED.save(
-        deps.storage,
-        info.sender.clone(),
-        &delegation,
-        env.block.height,
-    )?;
-    let mut delegation_data = delegation_info.unwrap();
-    delegation_data.total_delegated += vote_power;
-    DELEGATED.save(
-        deps.storage,
-        info.sender.clone(),
-        &delegation,
-        env.block.height,
-    )?;
+    let delegations = delegation.delegations;
+
+    let found: bool = false;
+    for delegation in delegations {
+        if delegation_address == delegation.delegated_to {
+            delegation.delegated = total_delegated_amount;
+            delegation.delegated_at = env.block.time;
+            delegation.delegation_end_at = env.block.time.plus_seconds(86400); ///////set as 1 day
+            found = true;
+            break;
+        } else {
+            continue;
+        }
+    }
+
+
+    if found {
+        delegation.delegations=delegations;
+        DELEGATED.save(
+            deps.storage,
+            info.sender.clone(),
+            &delegation,
+            env.block.height,
+        )?;
+    } else {
+        let delegation_new = Delegation {
+            delegated_to: delegation_address,
+            delegated_at: env.block.time,
+            delegation_end_at: env.block.time.plus_seconds(86400), ///////set as 1 day
+            delegated: total_delegated_amount,
+        };
+        delegations.push(delegation_new);
+        delegation.delegations=delegations;
+        DELEGATED.save(
+            deps.storage,
+            info.sender.clone(),
+            &delegation,
+            env.block.height,
+        )?;
+    }
 
     Ok(Response::new()
         .add_attribute("action", "delegate")
-        .add_attribute("from", info.sender))
+        .add_attribute("from", info.sender)
+        .add_attribute("delegated_address", delegation_address))
 }
 
 pub fn undelegate(
@@ -323,56 +339,35 @@ pub fn undelegate(
     }
 
     //// check if UnDelegation time has reached
-    let delegation = delegation.unwrap();
-    if delegation.delegation_end_at > env.block.time {
-        return Err(ContractError::CustomError {
-            val: "Yet to reach UnDelegation time".to_string(),
-        });
+    let delegation_info = delegation.unwrap();
+    let delegations = delegation_info.delegations;
+
+    let delegations_len = delegations.len();
+
+    for i in 0..delegations_len {
+        if delegations[i].delegated_to == delegation_address {
+            if delegations[i].delegation_end_at > env.block.time {
+                return Err(ContractError::CustomError {
+                    val: "Yet to reach UnDelegation time".to_string(),
+                });
+            }
+        } else {
+            delegations.remove(i);
+            delegation_info.delegations=delegations;
+            DELEGATED.save(
+                deps.storage,
+                info.sender.clone(),
+                &delegation_info,
+                env.block.height,
+            )?;
+            break;
+        }
     }
-
-    ///// get voting power
-    //balance of owner for the for denom for voting
-
-    let vtokens = VTOKENS.may_load_at_height(
-        deps.storage,
-        (info.sender.clone(), &denom),
-        env.block.height,
-    )?;
-
-    if vtokens.is_none() {
-        return Err(ContractError::CustomError {
-            val: "No tokens locked to perform voting on proposals".to_string(),
-        });
-    }
-
-    let vtokens = vtokens.unwrap();
-    // calculate voting power for the the proposal
-    let mut vote_power: u128 = 0;
-
-    for vtoken in vtokens {
-        vote_power += vtoken.vtoken.amount.u128();
-    }
-
-    let delegation = Delegation {
-        delegated_to: delegation_address,
-        delegated_at: env.block.time,
-        delegation_end_at: env.block.time.plus_seconds(86400), ///////set as 1 day
-        delegated: vote_power,
-    };
-
-    DELEGATED.remove(deps.storage, info.sender.clone(), env.block.height)?;
-    let mut delegation_data = delegation_info.unwrap();
-    delegation_data.total_delegated -= vote_power;
-    DELEGATED.save(
-        deps.storage,
-        info.sender.clone(),
-        &delegation,
-        env.block.height,
-    )?;
 
     Ok(Response::new()
         .add_attribute("action", "undelegate")
-        .add_attribute("from", info.sender))
+        .add_attribute("from", info.sender)
+        .add_attribute("delegated_address", delegation_address))
 }
 
 pub fn emission_foundation(
@@ -672,6 +667,13 @@ pub fn handle_withdraw(
 
     // Calculate total withdrawable amount and remove the corresponding VToken
     let mut withdrawable = 0u128;
+
+    //// to do ///////
+    /// 
+    /// 
+    ///  update delegate remove logic
+    /// 
+    /// ///////////
     let mut vwithdrawable = 0u128;
     let mut indices: Vec<usize> = vec![];
     for (index, vtoken) in vtokens {
@@ -1450,7 +1452,6 @@ pub fn vote_proposal(
     //check if active proposal
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
 
-
     // Check if proposal in voting period
     if proposal.voting_end_time < env.block.time {
         return Err(ContractError::CustomError {
@@ -1586,7 +1587,6 @@ pub fn raise_proposal(
     app_id: u64,
     ext_pairs: Vec<u64>,
 ) -> Result<Response<ComdexMessages>, ContractError> {
-
     //// only admin can execute
     ADMIN.assert_admin(deps.as_ref(), &info.sender)?;
 
@@ -1727,7 +1727,8 @@ pub fn sudo(deps: DepsMut, env: Env, msg: SudoMsg) -> Result<Response, ContractE
             Ok(Response::new())
         }
         SudoMsg::AddNewDelegation { delegation_info } => {
-            let mut delegation = DELEGATION_INFO.may_load(deps.storage, delegation_info.delegation_address)?;
+            let mut delegation =
+                DELEGATION_INFO.may_load(deps.storage, delegation_info.delegated_address)?;
             //// see all checks in the delegation_info
             if delegation.is_some() {
                 return Err(ContractError::CustomError {
@@ -1735,7 +1736,29 @@ pub fn sudo(deps: DepsMut, env: Env, msg: SudoMsg) -> Result<Response, ContractE
                 });
             }
 
-            DELEGATION_INFO.save(deps.storage, delegation_info.delegation_address, &delegation_info,env.block.height)?;
+            if delegation_info.protocol_fees > Decimal::one() {
+                return Err(ContractError::CustomError {
+                    val: "Protocol fees percentage cannot be greater than 100 %".to_string(),
+                });
+            }
+            if delegation_info.protocol_fees < Decimal::zero() {
+                return Err(ContractError::CustomError {
+                    val: "Protocol fees percentage cannot be less than 0 %".to_string(),
+                });
+            }
+
+            if delegation_info.delegated_address == delegation_info.fee_collector_adress {
+                return Err(ContractError::CustomError {
+                    val: "Delegator and fee collector address cannot be same".to_string(),
+                });
+            }
+
+            DELEGATION_INFO.save(
+                deps.storage,
+                delegation_info.delegated_address,
+                &delegation_info,
+                env.block.height,
+            )?;
 
             Ok(Response::new())
         }

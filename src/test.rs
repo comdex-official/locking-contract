@@ -1,10 +1,10 @@
+use crate::contract::*;
 use crate::error::ContractError;
 use crate::helpers::{
     get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
     query_pool_by_app, query_surplus_reward, query_whitelisted_asset,
 };
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
-use crate::contract::*;
 
 use crate::state::{
     Delegation, DelegationInfo, EmissionVaultPool, Proposal, Vote, VotePair, ADMIN,
@@ -28,7 +28,7 @@ use cw2::set_contract_version;
 use std::ops::{Div, Mul};
 
 mod tests {
-    
+
     use std::marker::PhantomData;
 
     use super::*;

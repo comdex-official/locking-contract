@@ -170,17 +170,25 @@ pub struct Delegation {
     pub delegated_at: Timestamp,
     pub delegation_end_at: Timestamp,
     pub delegated: u128,
-    pub delegation_ratio: Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct DelegationInfo {
-    pub delegation_address: Addr,
-    pub delegation_name: String,
-    pub total_delegated: u128,
-    pub fee_collected: Addr,
-
+    pub delegated_address: Addr,
+    /// syndicate address
+    pub delegated_name: String, //// syndicate name
+    pub fee_collector_adress: Addr,
+    pub protocol_fees: Decimal,  // fixed
+    pub delegator_fees: Decimal, // variable fee charged by the syndicate from delegator
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct UserDelegationInfo {
+    pub total_casted: u128,
+    pub delegations: Vec<Delegation>
+}
+
+
 
 pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");
 
@@ -208,7 +216,7 @@ pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed_proposals
 
 pub const REBASE_CLAIMED: Map<(Addr, u64), bool> = Map::new("rebase_claimed");
 
-pub const DELEGATED: SnapshotMap<Addr, Delegation> = SnapshotMap::new(
+pub const DELEGATED: SnapshotMap<Addr, UserDelegationInfo> = SnapshotMap::new(
     "delegated",
     "voters_checkpoints",
     "voters_changelogs",

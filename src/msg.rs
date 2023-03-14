@@ -1,4 +1,4 @@
-use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken,DelegationInfo};
+use crate::state::{DelegationInfo, Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
 use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,6 @@ pub enum ExecuteMsg {
     Undelegate {
         delegation_address: Addr,
         denom: String,
-        ratio: Decimal,
     },
 }
 
@@ -181,9 +180,9 @@ pub enum SudoMsg {
     UpdateVotingPeriod {
         voting_period: u64,
     },
-    AddNewDelegation{
+    AddNewDelegation {
         delegation_info: DelegationInfo,
-    }
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
