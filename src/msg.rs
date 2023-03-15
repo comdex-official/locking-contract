@@ -65,6 +65,10 @@ pub enum ExecuteMsg {
         delegation_address: Addr,
         denom: String,
     },
+    UpdateProtocolFees {
+        delegate_address: Addr,
+        fees: Decimal,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
@@ -181,6 +185,9 @@ pub enum SudoMsg {
         voting_period: u64,
     },
     AddNewDelegation {
+        delegation_info: DelegationInfo,
+    },
+    UpdateExistingDelegation {
         delegation_info: DelegationInfo,
     },
 }
