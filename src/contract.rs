@@ -268,10 +268,11 @@ pub fn delegate(
     let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?.unwrap();
 
     let delegations = delegation.delegations;
-
+    let prev_delegation:u128 =0;
     let found: bool = false;
     for delegation in delegations {
         if delegation_address == delegation.delegated_to {
+            prev_delegation = delegation.delegated;
             delegation.delegated = total_delegated_amount;
             delegation.delegated_at = env.block.time;
             delegation.delegation_end_at = env.block.time.plus_seconds(86400); ///////set as 1 day
@@ -284,6 +285,7 @@ pub fn delegate(
 
 
     if found {
+        delegation.total_casted=delegation.total_casted-prev_delegation+total_delegated_amount;
         delegation.delegations=delegations;
         DELEGATED.save(
             deps.storage,
@@ -639,10 +641,8 @@ pub fn handle_withdraw(
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
     }
-
     // Load the token
     let vtokens = VTOKENS.may_load(deps.storage, (info.sender.clone(), &denom))?;
-
     if vtokens.is_none() {
         return Err(ContractError::NotFound {
             msg: format!("No tokens found for {:?}", denom),
@@ -650,6 +650,12 @@ pub fn handle_withdraw(
     }
 
     let mut vtokens_denom = vtokens.unwrap();
+
+    let mut vote_power: u128 = 0;
+
+    for vtoken in vtokens_denom {
+        vote_power += vtoken.vtoken.amount.u128();
+    }
 
     // Retrieve unlocked tokens with the given locking period
     let vtokens: Vec<(usize, &Vtoken)> = vtokens_denom
@@ -668,12 +674,6 @@ pub fn handle_withdraw(
     // Calculate total withdrawable amount and remove the corresponding VToken
     let mut withdrawable = 0u128;
 
-    //// to do ///////
-    /// 
-    /// 
-    ///  update delegate remove logic
-    /// 
-    /// ///////////
     let mut vwithdrawable = 0u128;
     let mut indices: Vec<usize> = vec![];
     for (index, vtoken) in vtokens {
@@ -683,6 +683,27 @@ pub fn handle_withdraw(
     }
     for index in indices.into_iter().rev() {
         vtokens_denom.remove(index);
+    }
+
+    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?.unwrap();
+    let total_delegated= delegation.total_casted;
+
+    if total_delegated<vote_power-vwithdrawable{
+
+    }
+    else
+    {
+        for delegation_temp in delegation.delegations.iter_mut(){ 
+            let rhs=Decimal::from_ratio(vote_power-vwithdrawable,total_delegated);
+            delegation_temp.delegated=rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
+        }
+        delegation.total_casted=delegation.total_casted-vote_power-vwithdrawable;
+        DELEGATED.save(
+            deps.storage,
+            info.sender.clone(),
+            &delegation,
+            env.block.height,
+        )?;
     }
     // Update VTOKENS
     if vtokens_denom.is_empty() {
@@ -1449,6 +1470,7 @@ pub fn vote_proposal(
         return Err(ContractError::FundsNotAllowed {});
     }
 
+
     //check if active proposal
     let mut proposal = PROPOSAL.load(deps.storage, proposal_id)?;
 
@@ -1527,6 +1549,15 @@ pub fn vote_proposal(
     for vtoken in vtokens {
         vote_power += vtoken.vtoken.amount.u128();
     }
+
+    //// decrease voting power if delegated
+    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
+    if delegation.is_some()
+    {
+        let delegation = delegation.unwrap();
+        vote_power -= delegation.total_casted;
+    }
+
 
     //if already voted , decrease previous vote weight
     if has_voted {
