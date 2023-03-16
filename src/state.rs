@@ -185,10 +185,8 @@ pub struct DelegationInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct UserDelegationInfo {
     pub total_casted: u128,
-    pub delegations: Vec<Delegation>
+    pub delegations: Vec<Delegation>,
 }
-
-
 
 pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");
 
