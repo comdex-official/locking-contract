@@ -1,4 +1,6 @@
-use crate::state::{DelegationInfo, Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
+use crate::state::{
+    DelegationInfo, Emission, LockingPeriod, PeriodWeight, TokenInfo, Vote, Vtoken,
+};
 use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -64,6 +66,10 @@ pub enum ExecuteMsg {
     Undelegate {
         delegation_address: Addr,
         denom: String,
+    },
+    UpdateProtocolFees {
+        delegate_address: Addr,
+        fees: Decimal,
     },
 }
 
@@ -135,10 +141,6 @@ pub enum QueryMsg {
         proposal_id: u64,
         address: Addr,
     },
-    UserProposalAllUpPool {
-        proposal_id: u64,
-        address: Addr,
-    },
     Rebase {
         address: Addr,
         app_id: u64,
@@ -183,6 +185,9 @@ pub enum SudoMsg {
     AddNewDelegation {
         delegation_info: DelegationInfo,
     },
+    UpdateExistingDelegation {
+        delegation_info: DelegationInfo,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
@@ -223,7 +228,7 @@ pub struct IssuedVtokensResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ProposalVoteRespons {
-    pub proposal_pair_data: Vec<ProposalPairVote>,
+    pub proposal_pair_data: Vec<Vote>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

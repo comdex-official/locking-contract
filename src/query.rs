@@ -3,7 +3,7 @@ use std::borrow::Borrow;
 use crate::error::ContractError;
 use crate::helpers::get_token_supply;
 use crate::msg::{
-    IssuedNftResponse, ProposalPairVote, ProposalVoteRespons, QueryMsg, RebaseResponse,
+    IssuedNftResponse, QueryMsg, RebaseResponse,
     WithdrawableResponse,
 };
 use crate::state::{
@@ -90,15 +90,6 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::EmissionRewards { proposal_id } => {
             to_binary(&query_proposal_rewards(deps, env, proposal_id)?)
         }
-        QueryMsg::UserProposalAllUpPool {
-            proposal_id,
-            address,
-        } => to_binary(&query_proposal_all_up_pool(
-            deps,
-            env,
-            address,
-            proposal_id,
-        )?),
         QueryMsg::ProjectedEmission {
             proposal_id,
             app_id,
@@ -319,91 +310,13 @@ pub fn query_proposal_all_up(
     _env: Env,
     address: Addr,
     proposal_id: u64,
-) -> StdResult<ProposalVoteRespons> {
+) -> StdResult<Vote> {
     deps.api.addr_validate(&address.clone().into_string())?;
 
-    let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
-    let mut proposal_pair_data_allup: Vec<ProposalPairVote> = vec![];
-    for i in proposal.extended_pair {
-        if Uint128::from(i).div(Uint128::from(1000000_u64)) == Uint128::from(1_u64) {
-            continue;
-        }
-        let extended_pair_total_vote = PROPOSALVOTE
-            .load(deps.storage, (proposal_id, i))
-            .unwrap_or(Uint128::zero());
-        let user_vote =
-            match VOTERSPROPOSAL.may_load(deps.storage, (address.clone(), proposal_id))? {
-                None => Uint128::zero(),
-                Some(vote) => {
-                    if vote.extended_pair == i {
-                        Uint128::from(vote.vote_weight)
-                    } else {
-                        Uint128::zero()
-                    }
-                }
-            };
-        let bribe_param = BRIBES_BY_PROPOSAL
-            .load(deps.storage, (proposal_id, i))
-            .unwrap_or_default();
-
-        let proposal_pair_vote = ProposalPairVote {
-            extended_pair_id: i,
-            my_vote: user_vote,
-            total_vote: extended_pair_total_vote,
-            bribe: bribe_param,
-        };
-        proposal_pair_data_allup.push(proposal_pair_vote);
-    }
-
-    Ok(ProposalVoteRespons {
-        proposal_pair_data: proposal_pair_data_allup,
-    })
-}
-
-pub fn query_proposal_all_up_pool(
-    deps: Deps<ComdexQuery>,
-    _env: Env,
-    address: Addr,
-    proposal_id: u64,
-) -> StdResult<ProposalVoteRespons> {
-    deps.api.addr_validate(&address.clone().into_string())?;
-
-    let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
-    let mut proposal_pair_data_allup: Vec<ProposalPairVote> = vec![];
-    for i in proposal.extended_pair {
-        if Uint128::from(i).div(Uint128::from(1000000_u64)) == Uint128::zero() {
-            continue;
-        }
-        let extended_pair_total_vote = PROPOSALVOTE
-            .load(deps.storage, (proposal_id, i))
-            .unwrap_or(Uint128::zero());
-        let user_vote =
-            match VOTERSPROPOSAL.may_load(deps.storage, (address.clone(), proposal_id))? {
-                None => Uint128::zero(),
-                Some(vote) => {
-                    if vote.extended_pair == i {
-                        Uint128::from(vote.vote_weight)
-                    } else {
-                        Uint128::zero()
-                    }
-                }
-            };
-        let bribe_param = BRIBES_BY_PROPOSAL
-            .load(deps.storage, (proposal_id, i))
-            .unwrap_or_default();
-
-        let proposal_pair_vote = ProposalPairVote {
-            extended_pair_id: i,
-            my_vote: user_vote,
-            total_vote: extended_pair_total_vote,
-            bribe: bribe_param,
-        };
-        proposal_pair_data_allup.push(proposal_pair_vote);
-    }
-
-    Ok(ProposalVoteRespons {
-        proposal_pair_data: proposal_pair_data_allup,
-    })
+    let vote = VOTERSPROPOSAL
+        .may_load(deps.storage, (address, proposal_id))?
+        .unwrap();
+    Ok(vote)
 }
 
 pub fn query_vote(
