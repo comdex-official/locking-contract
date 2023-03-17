@@ -7,7 +7,7 @@ use crate::state::{
     Delegation, Emission, EmissionVaultPool, LockingPeriod, Proposal, State, TokenSupply, Vote,
     Vtoken, DelegationInfo, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED,
     DELEGATION_INFO, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
-    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
+    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS, UserDelegationInfo,
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -534,22 +534,11 @@ pub fn query_delegation(
     _env: Env,
     delegated_address: Addr,
     delegator_address: Addr,
-) -> StdResult<Delegation> {
+) -> StdResult<Option<UserDelegationInfo>> {
     let _ = DELEGATION_INFO.may_load(deps.storage, delegated_address.clone())?;
     let delegation = DELEGATED
-        .may_load(deps.storage, delegator_address.clone())?
-        .unwrap();
-    let delegations = delegation.delegations;
-    for delegation_tmp in delegations {
-        if delegated_address == delegation_tmp.delegated_to {
-            return Ok(delegation_tmp);
-        } else {
-            continue;
-        }
-    }
-    return Err(StdError::NotFound {
-        kind: format!("Delegation not found for {:?}", delegated_address),
-    });
+        .may_load(deps.storage, delegator_address.clone())?;
+    Ok(delegation)
 }
 pub fn query_delegator_param(
     deps: Deps<ComdexQuery>,

@@ -8,7 +8,7 @@ use crate::state::{
     Delegation, DelegationInfo, EmissionVaultPool, Proposal, Vote, VotePair, ADMIN,
     APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, CSWAP_ID, DELEGATED,
     DELEGATION_INFO, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT,
-    PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE,
+    PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE, UserDelegationInfo,
 };
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
@@ -266,37 +266,14 @@ pub fn delegate(
     }
 
     let total_delegated_amount = ratio.mul(Uint128::from(vote_power)).u128();
-    let mut delegation = DELEGATED
-        .may_load(deps.storage, info.sender.clone())?
-        .unwrap();
-
-    let mut delegations = delegation.delegations;
-    let mut prev_delegation: u128 = 0;
-    let mut found: bool = false;
-    for delegation_tmp in delegations.iter_mut() {
-        if delegation_address == delegation_tmp.delegated_to {
-            prev_delegation = delegation_tmp.delegated;
-            delegation_tmp.delegated = total_delegated_amount;
-            delegation_tmp.delegated_at = env.block.time;
-            delegation_tmp.delegation_end_at = env.block.time.plus_seconds(86400); ///////set as 1 day
-            found = true;
-            break;
-        } else {
-            continue;
-        }
-    }
-
-    if found {
-        delegation.total_casted =
-            delegation.total_casted - prev_delegation + total_delegated_amount;
-        delegation.delegations = delegations;
-        DELEGATED.save(
-            deps.storage,
-            info.sender.clone(),
-            &delegation,
-            env.block.height,
-        )?;
-    } else {
+    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
+    if delegation.is_none() {
+        //create new delegation
+        let mut delegation = UserDelegationInfo {
+            total_casted: total_delegated_amount,
+            delegations: vec![],
+        };
+        let mut delegations = delegation.delegations;
         let delegation_new = Delegation {
             delegated_to: delegation_address.clone(),
             delegated_at: env.block.time,
@@ -311,6 +288,51 @@ pub fn delegate(
             &delegation,
             env.block.height,
         )?;
+    } else {
+        let mut delegation = delegation.unwrap();
+
+        let mut delegations = delegation.delegations;
+        let mut prev_delegation: u128 = 0;
+        let mut found = false;
+        for delegation_tmp in delegations.iter_mut() {
+            if delegation_address == delegation_tmp.delegated_to {
+                prev_delegation = delegation_tmp.delegated;
+                delegation_tmp.delegated = total_delegated_amount;
+                delegation_tmp.delegated_at = env.block.time;
+                delegation_tmp.delegation_end_at = env.block.time.plus_seconds(86400); ///////set as 1 day
+                found = true;
+                break;
+            } else {
+                continue;
+            }
+        }
+
+        if found {
+            delegation.total_casted =
+                delegation.total_casted - prev_delegation + total_delegated_amount;
+            delegation.delegations = delegations;
+            DELEGATED.save(
+                deps.storage,
+                info.sender.clone(),
+                &delegation,
+                env.block.height,
+            )?;
+        } else {
+            let delegation_new = Delegation {
+                delegated_to: delegation_address.clone(),
+                delegated_at: env.block.time,
+                delegation_end_at: env.block.time.plus_seconds(86400), ///////set as 1 day
+                delegated: total_delegated_amount,
+            };
+            delegations.push(delegation_new);
+            delegation.delegations = delegations;
+            DELEGATED.save(
+                deps.storage,
+                info.sender.clone(),
+                &delegation,
+                env.block.height,
+            )?;
+        }
     }
 
     Ok(Response::new()
