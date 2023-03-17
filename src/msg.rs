@@ -156,6 +156,13 @@ pub enum QueryMsg {
         gov_token_denom: String,
         gov_token_id: u64,
     },
+    DelegationRequest {
+        delegated_address: Addr,
+        delegator_address: Addr,
+    },
+    DelegatorParamRequest {
+        delegated_address: Addr,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]

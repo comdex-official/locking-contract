@@ -2,15 +2,12 @@ use std::borrow::Borrow;
 
 use crate::error::ContractError;
 use crate::helpers::get_token_supply;
-use crate::msg::{
-    IssuedNftResponse, QueryMsg, RebaseResponse,
-    WithdrawableResponse,
-};
+use crate::msg::{IssuedNftResponse, QueryMsg, RebaseResponse, WithdrawableResponse};
 use crate::state::{
-    Emission, EmissionVaultPool, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, ADMIN,
-    APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION, EMISSION_REWARD,
-    MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY, TOKENS,
-    VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
+    Delegation, Emission, EmissionVaultPool, LockingPeriod, Proposal, State, TokenSupply, Vote,
+    Vtoken, DelegationInfo, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED,
+    DELEGATION_INFO, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
+    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -102,6 +99,22 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             app_id,
             gov_token_denom,
             gov_token_id,
+        )?),
+        QueryMsg::DelegationRequest {
+            delegated_address,
+            delegator_address,
+        } => to_binary(&query_delegation(
+            deps,
+            env,
+            delegated_address,
+            delegator_address,
+        )?),
+        QueryMsg::DelegatorParamRequest {
+            delegated_address,
+        } => to_binary(&query_delegator_param(
+            deps,
+            env,
+            delegated_address,
         )?),
 
         _ => panic!("Not implemented"),
@@ -515,6 +528,36 @@ pub fn query_rebase_eligible(
     }
 
     Ok(response)
+}
+pub fn query_delegation(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    delegated_address: Addr,
+    delegator_address: Addr,
+) -> StdResult<Delegation> {
+    let _ = DELEGATION_INFO.may_load(deps.storage, delegated_address.clone())?;
+    let delegation = DELEGATED
+        .may_load(deps.storage, delegator_address.clone())?
+        .unwrap();
+    let delegations = delegation.delegations;
+    for delegation_tmp in delegations {
+        if delegated_address == delegation_tmp.delegated_to {
+            return Ok(delegation_tmp);
+        } else {
+            continue;
+        }
+    }
+    return Err(StdError::NotFound {
+        kind: format!("Delegation not found for {:?}", delegated_address),
+    });
+}
+pub fn query_delegator_param(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    delegated_address: Addr,
+) -> StdResult<DelegationInfo> {
+    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegated_address.clone())?;
+    return Ok(delegation_info.unwrap());
 }
 #[cfg(test)]
 mod tests {
