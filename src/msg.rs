@@ -34,6 +34,7 @@ pub enum ExecuteMsg {
     },
     ClaimReward {
         app_id: u64,
+        proposal_id: Option<u64>,
     },
     Bribe {
         proposal_id: u64,
@@ -70,6 +71,9 @@ pub enum ExecuteMsg {
     UpdateProtocolFees {
         delegate_address: Addr,
         fees: Decimal,
+    },
+    UserDelegation {
+        address: Addr,
     },
 }
 
@@ -159,8 +163,17 @@ pub enum QueryMsg {
     DelegationRequest {
         delegated_address: Addr,
         delegator_address: Addr,
+        height: Option<u64>,
     },
     DelegatorParamRequest {
+        delegated_address: Addr,
+    },
+    GetEmissionVotingPower {
+        address: Addr,
+        proposal_id: u64,
+        denom: String,
+    },
+    DelegationStats {
         delegated_address: Addr,
     },
 }

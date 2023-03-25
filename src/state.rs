@@ -183,6 +183,12 @@ pub struct DelegationInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct DelegationStats {
+    pub total_delegated: u128,
+    pub total_delegators: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct UserDelegationInfo {
     pub total_casted: u128,
     pub delegations: Vec<Delegation>,
@@ -206,7 +212,16 @@ pub const EMISSION_REWARD: Map<u64, EmissionVaultPool> = Map::new("emission_rewa
 
 pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("voters_vote");
 
+pub const VOTERS_CLAIM: Map<(Addr, u64), bool> = Map::new("voters_claim");
+
+pub const DELEGATOR_CLAIM: Map<(Addr, u64), bool> = Map::new("delegator_claim");
+
 pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("voters_proposal");
+
+pub const VOTERS_CLAIMED_PROPOSALS: Map<Addr, Vec<u64>> = Map::new("voters_claimed_proposals");
+
+pub const DELEGATOR_CLAIMED_PROPOSALS: Map<Addr, Vec<u64>> =
+    Map::new("delegator_claimed_proposals");
 
 pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max_proposal_claimed");
 
@@ -223,6 +238,13 @@ pub const DELEGATED: SnapshotMap<Addr, UserDelegationInfo> = SnapshotMap::new(
 
 pub const DELEGATION_INFO: SnapshotMap<Addr, DelegationInfo> = SnapshotMap::new(
     "delegation_info",
+    "voters_checkpoints",
+    "voters_changelogs",
+    Strategy::EveryBlock,
+);
+
+pub const DELEGATION_STATS: SnapshotMap<Addr, DelegationStats> = SnapshotMap::new(
+    "delegation_stats",
     "voters_checkpoints",
     "voters_changelogs",
     Strategy::EveryBlock,

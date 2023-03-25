@@ -4,10 +4,11 @@ use crate::error::ContractError;
 use crate::helpers::get_token_supply;
 use crate::msg::{IssuedNftResponse, QueryMsg, RebaseResponse, WithdrawableResponse};
 use crate::state::{
-    Delegation, Emission, EmissionVaultPool, LockingPeriod, Proposal, State, TokenSupply, Vote,
-    Vtoken, DelegationInfo, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED,
-    DELEGATION_INFO, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
-    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS, UserDelegationInfo,
+    Delegation, DelegationInfo, DelegationStats, Emission, EmissionVaultPool, LockingPeriod,
+    Proposal, State, TokenSupply, UserDelegationInfo, Vote, Vtoken, ADMIN, APPCURRENTPROPOSAL,
+    BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION,
+    EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY,
+    TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -103,19 +104,17 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::DelegationRequest {
             delegated_address,
             delegator_address,
+            height,
         } => to_binary(&query_delegation(
             deps,
             env,
             delegated_address,
             delegator_address,
+            height,
         )?),
-        QueryMsg::DelegatorParamRequest {
-            delegated_address,
-        } => to_binary(&query_delegator_param(
-            deps,
-            env,
-            delegated_address,
-        )?),
+        QueryMsg::DelegatorParamRequest { delegated_address } => {
+            to_binary(&query_delegator_param(deps, env, delegated_address)?)
+        }
 
         _ => panic!("Not implemented"),
     }
@@ -534,11 +533,36 @@ pub fn query_delegation(
     _env: Env,
     delegated_address: Addr,
     delegator_address: Addr,
-) -> StdResult<Option<UserDelegationInfo>> {
-    let _ = DELEGATION_INFO.may_load(deps.storage, delegated_address.clone())?;
-    let delegation = DELEGATED
-        .may_load(deps.storage, delegator_address.clone())?;
-    Ok(delegation)
+    height: Option<u64>,
+) -> StdResult<Option<Delegation>> {
+    if height.is_some() {
+        let delegation_user = DELEGATED.may_load_at_height(
+            deps.storage,
+            delegator_address.clone(),
+            height.unwrap(),
+        )?;
+        if delegation_user.is_none() {
+            return Ok(None);
+        }
+        let delegation_user = delegation_user.unwrap();
+        let delegation = delegation_user
+            .delegations
+            .into_iter()
+            .find(|x| x.delegated_to == delegated_address);
+        return Ok(delegation);
+    } else {
+        let delegation_user = DELEGATED.may_load(deps.storage, delegator_address.clone())?;
+        if delegation_user.is_none() {
+            return Ok(None);
+        }
+        let delegation_user = delegation_user.unwrap();
+        let delegation = delegation_user
+            .delegations
+            .into_iter()
+            .find(|x| x.delegated_to == delegated_address);
+
+        Ok(delegation)
+    }
 }
 pub fn query_delegator_param(
     deps: Deps<ComdexQuery>,
@@ -548,6 +572,52 @@ pub fn query_delegator_param(
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegated_address.clone())?;
     return Ok(delegation_info.unwrap());
 }
+
+pub fn query_delegated_stats(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    delegated_address: Addr,
+) -> StdResult<Option<DelegationStats>> {
+    let delegation_info = DELEGATION_STATS.may_load(deps.storage, delegated_address.clone())?;
+    return Ok(delegation_info);
+}
+
+pub fn query_user_delegation_all(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    delegated_address: Addr,
+) -> StdResult<Option<UserDelegationInfo>> {
+    let delegation_info = DELEGATED.may_load(deps.storage, delegated_address.clone())?;
+    return Ok(delegation_info);
+}
+
+pub fn query_emission_voting_power(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    address: Addr,
+    proposal_id: u64,
+    denom: String,
+) -> StdResult<u128> {
+    let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
+    let vtokens =
+        VTOKENS.may_load_at_height(deps.storage, (address.clone(), &denom), proposal.height)?;
+    if vtokens.is_none() {
+        return Ok(0);
+    }
+    let mut vote_power: u128 = 0;
+    for vtoken in vtokens.unwrap() {
+        vote_power += vtoken.token.amount.u128();
+    }
+
+    let delegation =
+        DELEGATED.may_load_at_height(deps.storage, address.clone(), proposal.height)?;
+    if delegation.is_some() {
+        let delegation = delegation.unwrap();
+        vote_power -= delegation.total_casted;
+    }
+    return Ok(vote_power);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

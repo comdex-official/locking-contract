@@ -5,10 +5,11 @@ use crate::helpers::{
 };
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
 use crate::state::{
-    Delegation, DelegationInfo, EmissionVaultPool, Proposal, Vote, VotePair, ADMIN,
-    APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, CSWAP_ID, DELEGATED,
-    DELEGATION_INFO, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT,
-    PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_VOTE, UserDelegationInfo,
+    Delegation, DelegationInfo, DelegationStats, EmissionVaultPool, Proposal, UserDelegationInfo,
+    Vote, VotePair, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, CSWAP_ID,
+    DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED,
+    PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_CLAIM,
+    VOTERS_CLAIMED_PROPOSALS, VOTERS_VOTE,
 };
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
@@ -151,9 +152,8 @@ pub fn execute(
 
             ////get ext pairs vec from app
             let mut ext_pairs = query_extended_pair_by_app(deps.as_ref(), app_id)?;
-            for val in pools {
-                ext_pairs.push(val);
-            }
+            ext_pairs.append(&mut pools);
+
             raise_proposal(deps, env, info, app_id, ext_pairs)
         }
         ExecuteMsg::Bribe {
@@ -171,7 +171,10 @@ pub fn execute(
 
             bribe_proposal(deps, env, info, proposal_id, extended_pair, bribe_coin)
         }
-        ExecuteMsg::ClaimReward { app_id } => claim_rewards(deps, env, info, app_id),
+        ExecuteMsg::ClaimReward {
+            app_id,
+            proposal_id,
+        } => claim_rewards(deps, env, info, app_id, proposal_id),
         ExecuteMsg::Emission { proposal_id } => emission(deps, env, info, proposal_id),
         ExecuteMsg::Lock {
             app_id,
@@ -195,11 +198,11 @@ pub fn execute(
             handle_lock_nft(deps, env, info, app_id, locking_period, recipient)
         }
         ExecuteMsg::Withdraw { denom } => handle_withdraw(deps, env, info, denom),
-        ExecuteMsg::Transfer {
-            recipient,
-            locking_period,
-            denom,
-        } => handle_transfer(deps, env, info, recipient, locking_period, denom),
+        // ExecuteMsg::Transfer {
+        //     recipient,
+        //     locking_period,
+        //     denom,
+        // } => handle_transfer(deps, env, info, recipient, locking_period, denom),
         ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
         ExecuteMsg::Delegate {
             delegation_address,
@@ -214,13 +217,16 @@ pub fn execute(
             delegate_address,
             fees,
         } => update_protocol_fees(deps, env, info, delegate_address, fees),
+        _ => Err(ContractError::CustomError {
+            val: "Invalid message".to_string(),
+        }),
     }
 }
 
 //// delegation function/////
 
 pub fn delegate(
-    deps: DepsMut<ComdexQuery>, //indicates how many dependencies have been delegated so far
+    deps: DepsMut<ComdexQuery>,
     env: Env,
     info: MessageInfo,
     delegation_address: Addr,
@@ -243,7 +249,7 @@ pub fn delegate(
     }
 
     ///// get voting power
-    //balance of owner for the for denom for voting
+    // balance of owner for the for denom for voting
 
     let vtokens = VTOKENS.may_load_at_height(
         deps.storage,
@@ -264,7 +270,7 @@ pub fn delegate(
     for vtoken in vtokens {
         vote_power += vtoken.vtoken.amount.u128();
     }
-
+    let delegation_stats = DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
     let total_delegated_amount = ratio.mul(Uint128::from(vote_power)).u128();
     let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
     if delegation.is_none() {
@@ -288,9 +294,30 @@ pub fn delegate(
             &delegation,
             env.block.height,
         )?;
+
+        if delegation_stats.is_none() {
+            let delegation_stats = DelegationStats {
+                total_delegated: total_delegated_amount,
+                total_delegators: 1,
+            };
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+        } else {
+            let mut delegation_stats = delegation_stats.unwrap();
+            delegation_stats.total_delegated += total_delegated_amount;
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+        }
     } else {
         let mut delegation = delegation.unwrap();
-
         let mut delegations = delegation.delegations;
         let mut prev_delegation: u128 = 0;
         let mut found = false;
@@ -308,6 +335,16 @@ pub fn delegate(
         }
 
         if found {
+            let mut delegation_stats = delegation_stats.unwrap();
+            delegation_stats.total_delegated -= prev_delegation;
+            delegation_stats.total_delegated -= total_delegated_amount;
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+
             delegation.total_casted =
                 delegation.total_casted - prev_delegation + total_delegated_amount;
             delegation.delegations = delegations;
@@ -318,6 +355,15 @@ pub fn delegate(
                 env.block.height,
             )?;
         } else {
+            let mut delegation_stats = delegation_stats.unwrap();
+            delegation_stats.total_delegated -= total_delegated_amount;
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+
             let delegation_new = Delegation {
                 delegated_to: delegation_address.clone(),
                 delegated_at: env.block.time,
@@ -716,7 +762,21 @@ pub fn handle_withdraw(
     } else {
         for delegation_temp in delegation.delegations.iter_mut() {
             let rhs = Decimal::from_ratio(vote_power - vwithdrawable, total_delegated);
+            let temp = delegation_temp.delegated;
+            let mut delegation_stats = DELEGATION_STATS
+                .may_load(deps.storage, delegation_temp.delegated_to.clone())?
+                .unwrap();
+            delegation_stats.total_delegated = delegation_stats.total_delegated - temp;
+            delegation_stats.total_delegated = delegation_stats.total_delegated
+                + rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
+
             delegation_temp.delegated = rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_temp.delegated_to.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
         }
         delegation.total_casted = delegation.total_casted - vote_power - vwithdrawable;
         DELEGATED.save(
@@ -959,64 +1019,77 @@ pub fn claim_rewards(
     env: Env,
     info: MessageInfo,
     app_id: u64,
+    proposal_id: Option<u64>,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
     }
-    //Check active proposal
-
-    let max_proposal_claimed = MAXPROPOSALCLAIMED
-        .load(deps.storage, (app_id, info.sender.clone()))
-        .unwrap_or_default();
-
     let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,
         None => vec![],
     };
-
-    let mut bribe_coins = calculate_bribe_reward(
-        deps.as_ref(),
-        env.clone(),
-        info.clone(),
-        max_proposal_claimed,
-        all_proposals.clone(),
-        app_id,
-    )?;
-
-    let surplus_share = calculate_surplus_reward(
-        deps.as_ref(),
-        env,
-        info.clone(),
-        max_proposal_claimed,
-        all_proposals.clone(),
-        app_id,
-    )?;
-
-    if !bribe_coins.is_empty() {
-        if !surplus_share.amount.is_zero() {
-            for coin1 in bribe_coins.iter_mut() {
-                if surplus_share.denom == coin1.denom {
-                    coin1.amount += surplus_share.amount;
-                }
-            }
+    let mut bribe_coins = vec![];
+    if proposal_id.is_some() {
+        if !all_proposals.contains(&proposal_id.unwrap()) {
+            return Err(ContractError::CustomError {
+                val: String::from("proposal not completed"),
+            });
         }
-    } else if !surplus_share.amount.is_zero() {
-        bribe_coins = vec![surplus_share]
+
+        let voters_claimed = VOTERS_CLAIM
+            .load(deps.storage, (info.sender.clone(), proposal_id.unwrap()))
+            .unwrap_or_default();
+
+        if voters_claimed {
+            return Err(ContractError::CustomError {
+                val: String::from("Already claimed"),
+            });
+        }
+
+        bribe_coins = calculate_bribe_reward_proposal(
+            deps.as_ref(),
+            env.clone(),
+            info.clone(),
+            proposal_id.unwrap(),
+        )?;
+        VOTERS_CLAIM.save(
+            deps.storage,
+            (info.sender.clone(), proposal_id.unwrap()),
+            &true,
+        )?;
+        let mut claimed_proposal =
+            match VOTERS_CLAIMED_PROPOSALS.may_load(deps.storage, info.sender.clone())? {
+                Some(val) => val,
+                None => vec![],
+            };
+        claimed_proposal.push(proposal_id.unwrap());
+        claimed_proposal.sort();
+        VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
+        bribe_coins.sort_by_key(|element| element.denom.clone());
     } else {
-        bribe_coins = vec![]
+        let (_bribe_coins, claimed_proposal) = calculate_bribe_reward(
+            deps.as_ref(),
+            env.clone(),
+            info.clone(),
+            all_proposals.clone(),
+            app_id,
+        )?;
+
+        bribe_coins = _bribe_coins;
+        MAXPROPOSALCLAIMED.save(
+            deps.storage,
+            (app_id, info.sender.clone()),
+            all_proposals.last().unwrap(),
+        )?;
+        VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
+        bribe_coins.sort_by_key(|element| element.denom.clone());
+        for proposal in claimed_proposal {
+            VOTERS_CLAIM.save(deps.storage, (info.sender.clone(), proposal), &true)?;
+        }
     }
-
-    MAXPROPOSALCLAIMED.save(
-        deps.storage,
-        (app_id, info.sender.clone()),
-        all_proposals.last().unwrap(),
-    )?;
-
-    bribe_coins.sort_by_key(|element| element.denom.clone());
-
     if !bribe_coins.is_empty() {
         Ok(Response::new()
-            .add_attribute("method", "Bribe Claimed")
+            .add_attribute("method", "External Incentive Claimed")
             .add_message(BankMsg::Send {
                 to_address: info.sender.to_string(),
                 amount: bribe_coins,
@@ -1032,13 +1105,21 @@ pub fn calculate_bribe_reward(
     deps: Deps<ComdexQuery>,
     _env: Env,
     info: MessageInfo,
-    max_proposal_claimed: u64,
     all_proposals: Vec<u64>,
     _app_id: u64,
-) -> Result<Vec<Coin>, ContractError> {
+) -> Result<(Vec<Coin>, Vec<u64>), ContractError> {
     let mut bribe_coins: Vec<Coin> = vec![];
+    let mut claimed_proposal =
+        match VOTERS_CLAIMED_PROPOSALS.may_load(deps.storage, info.sender.clone())? {
+            Some(val) => val,
+            None => vec![],
+        };
     for proposalid in all_proposals {
-        if proposalid <= max_proposal_claimed {
+        let voters_claimed = VOTERS_CLAIM
+            .load(deps.storage, (info.sender.clone(), proposalid))
+            .unwrap_or_default();
+
+        if voters_claimed {
             continue;
         }
         let vote = match VOTERSPROPOSAL.may_load(deps.storage, (info.sender.clone(), proposalid))? {
@@ -1085,10 +1166,67 @@ pub fn calculate_bribe_reward(
                 }
             }
         }
+        claimed_proposal.push(proposalid);
+        claimed_proposal.sort();
     }
 
     //// send bank message to band
 
+    Ok((bribe_coins, claimed_proposal))
+}
+
+pub fn calculate_bribe_reward_proposal(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    info: MessageInfo,
+    proposal_id: u64,
+) -> Result<Vec<Coin>, ContractError> {
+    let mut bribe_coins: Vec<Coin> = vec![];
+
+    let _vote = VOTERSPROPOSAL.may_load(deps.storage, (info.sender.clone(), proposal_id))?;
+
+    if _vote.is_some() {
+        let vote = _vote.unwrap();
+        for pair in vote.votes {
+            let total_vote_weight = PROPOSALVOTE
+                .load(deps.storage, (proposal_id, pair.extended_pair))?
+                .u128();
+
+            let total_bribe = match BRIBES_BY_PROPOSAL
+                .may_load(deps.storage, (proposal_id, pair.extended_pair))?
+            {
+                Some(val) => val,
+                None => vec![],
+            };
+
+            let mut claimable_bribe: Vec<Coin> = vec![];
+            for coin in total_bribe.clone() {
+                let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
+                    .div(Decimal::new(Uint128::from(total_vote_weight))))
+                .mul(coin.amount);
+                let claimable_coin = Coin {
+                    amount: claimable_amount,
+                    denom: coin.denom,
+                };
+                claimable_bribe.push(claimable_coin);
+            }
+
+            for bribe_deposited in claimable_bribe.clone() {
+                match bribe_coins
+                    .iter_mut()
+                    .find(|p| bribe_deposited.denom == p.denom)
+                {
+                    Some(pivot) => {
+                        pivot.denom = bribe_deposited.denom;
+                        pivot.amount += bribe_deposited.amount;
+                    }
+                    None => {
+                        bribe_coins.push(bribe_deposited);
+                    }
+                }
+            }
+        }
+    }
     Ok(bribe_coins)
 }
 
@@ -1520,7 +1658,7 @@ pub fn vote_proposal(
     deps: DepsMut<ComdexQuery>,
     env: Env,
     info: MessageInfo,
-    app_id: u64,
+    _app_id: u64,
     proposal_id: u64,
     extended_pair: Vec<u64>,
     gov_token_denom: String,
@@ -1532,6 +1670,7 @@ pub fn vote_proposal(
             val: "Admin cannot vote".to_string(),
         });
     }
+
     // do not accept  funds
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
@@ -1584,7 +1723,7 @@ pub fn vote_proposal(
 
     //// check if extended pair exists in proposal's extended pair
 
-    if extended_pairs_proposal
+    if !extended_pairs_proposal
         .iter()
         .all(|item| extended_pair.contains(item))
     {
@@ -1616,8 +1755,18 @@ pub fn vote_proposal(
         vote_power += vtoken.vtoken.amount.u128();
     }
 
+    //// if a delegated_address is voting
+    let delegator_locked =
+        DELEGATION_STATS.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
+
+    if delegator_locked.is_some() {
+        let delegator_locked = delegator_locked.unwrap().total_delegated;
+        vote_power += delegator_locked;
+    }
+
     //// decrease voting power if delegated
-    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
+    let delegation =
+        DELEGATED.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
     if delegation.is_some() {
         let delegation = delegation.unwrap();
         vote_power -= delegation.total_casted;
