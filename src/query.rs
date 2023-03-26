@@ -115,6 +115,12 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::DelegatorParamRequest { delegated_address } => {
             to_binary(&query_delegator_param(deps, env, delegated_address)?)
         }
+        QueryMsg::DelegationStats { delegated_address } => {
+            to_binary(&query_delegated_stats(deps, env, delegated_address)?)
+        }
+        QueryMsg::UserDelegationStats { delegated_address } => {
+            to_binary(&query_user_delegation_all(deps, env, delegated_address)?)
+        }
 
         _ => panic!("Not implemented"),
     }

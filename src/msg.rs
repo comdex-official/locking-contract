@@ -176,6 +176,9 @@ pub enum QueryMsg {
     DelegationStats {
         delegated_address: Addr,
     },
+    UserDelegationStats {
+        delegated_address: Addr,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
