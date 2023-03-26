@@ -180,6 +180,7 @@ pub struct DelegationInfo {
     pub fee_collector_adress: Addr,
     pub protocol_fees: Decimal,  // fixed
     pub delegator_fees: Decimal, // variable fee charged by the syndicate from delegator
+    pub excluded_fee_pair: Vec<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]

@@ -196,6 +196,19 @@ pub fn calculate_bribe_reward_proposal_delegated(
 
             let mut claimable_bribe: Vec<Coin> = vec![];
             for coin in total_bribe.clone() {
+                let mut claimable_amount:Uint128=Uint128::zero();
+                if delegation_info.excluded_fee_pair.contains(&pair.extended_pair)
+                {
+                    claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
+                    .div(Decimal::new(Uint128::from(total_vote_weight)))
+                    .mul(Decimal::one() - delegation_info.protocol_fees))
+                .mul(coin.amount);
+                }
+                else {
+                    claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
+                    .div(Decimal::new(Uint128::from(total_vote_weight))))
+                .mul(coin.amount);
+                }
                 let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
                     .div(Decimal::new(Uint128::from(total_vote_weight)))
                     .mul(Decimal::one() - delegation_info.protocol_fees))
