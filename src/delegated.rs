@@ -1,22 +1,13 @@
 use crate::error::ContractError;
 use crate::state::{
-    Delegation, DelegationInfo, EmissionVaultPool, Proposal, UserDelegationInfo, Vote, VotePair,
-    ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, CSWAP_ID, DELEGATED,
-    DELEGATION_INFO, DELEGATION_STATS, DELEGATOR_CLAIM, DELEGATOR_CLAIMED_PROPOSALS, EMISSION,
-    EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED,
-    VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_CLAIMED_PROPOSALS, VOTERS_VOTE,
-};
-use crate::state::{
-    LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
-    TOKENS, VTOKENS,
+    BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO, DELEGATION_STATS,
+    DELEGATOR_CLAIM, DELEGATOR_CLAIMED_PROPOSALS, PROPOSAL, PROPOSALVOTE, VOTERSPROPOSAL,
 };
 
 use comdex_bindings::{ComdexMessages, ComdexQuery};
 #[cfg(not(feature = "library"))]
-use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Api, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, StdError, StdResult, Storage, Uint128, WasmQuery,
+    Addr, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, Response, Uint128,
 };
 use std::ops::{Div, Mul};
 

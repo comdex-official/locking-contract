@@ -177,7 +177,7 @@ pub struct DelegationInfo {
     pub delegated_address: Addr,
     /// syndicate address
     pub delegated_name: String, //// syndicate name
-    pub fee_collector_adress: Addr,
+    pub fee_collector_address: Addr,
     pub protocol_fees: Decimal,  // fixed
     pub delegator_fees: Decimal, // variable fee charged by the syndicate from delegator
     pub excluded_fee_pair: Vec<u64>,

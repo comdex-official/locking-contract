@@ -5,10 +5,10 @@ use crate::helpers::{
 };
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
 use crate::state::{
-    Delegation, DelegationInfo, DelegationStats, EmissionVaultPool, Proposal, UserDelegationInfo,
-    Vote, VotePair, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, CSWAP_ID,
-    DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED,
-    PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_CLAIM,
+    Delegation, DelegationStats, EmissionVaultPool, Proposal, UserDelegationInfo, Vote, VotePair,
+    ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, CSWAP_ID, DELEGATED,
+    DELEGATION_INFO, DELEGATION_STATS, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL,
+    PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_CLAIM,
     VOTERS_CLAIMED_PROPOSALS, VOTERS_VOTE,
 };
 use crate::state::{
@@ -264,7 +264,7 @@ pub fn delegate(
     }
 
     let vtokens = vtokens.unwrap();
-    // calculate voting power for the the proposal
+    // calculate voting power for the proposal
     let mut vote_power: u128 = 0;
 
     for vtoken in vtokens {
@@ -309,6 +309,7 @@ pub fn delegate(
         } else {
             let mut delegation_stats = delegation_stats.unwrap();
             delegation_stats.total_delegated += total_delegated_amount;
+            delegation_stats.total_delegators += 1;
             DELEGATION_STATS.save(
                 deps.storage,
                 delegation_address.clone(),
@@ -337,7 +338,7 @@ pub fn delegate(
         if found {
             let mut delegation_stats = delegation_stats.unwrap();
             delegation_stats.total_delegated -= prev_delegation;
-            delegation_stats.total_delegated -= total_delegated_amount;
+            delegation_stats.total_delegated += total_delegated_amount;
             DELEGATION_STATS.save(
                 deps.storage,
                 delegation_address.clone(),
@@ -356,7 +357,8 @@ pub fn delegate(
             )?;
         } else {
             let mut delegation_stats = delegation_stats.unwrap();
-            delegation_stats.total_delegated -= total_delegated_amount;
+            delegation_stats.total_delegated += total_delegated_amount;
+            delegation_stats.total_delegators += 1;
             DELEGATION_STATS.save(
                 deps.storage,
                 delegation_address.clone(),
@@ -398,8 +400,7 @@ pub fn undelegate(
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
     if delegation_info.is_none() {
         return Err(ContractError::CustomError {
-            val: "Emission calculation did not take place to initiate foundation calculation"
-                .to_string(),
+            val: "Delegation info not found".to_string(),
         });
     }
 
@@ -425,6 +426,19 @@ pub fn undelegate(
                 });
             }
         } else {
+            // update delegation stats(reduce)
+            let delegation_stats =
+                DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
+            let mut delegation_stats = delegation_stats.unwrap();
+            delegation_stats.total_delegated -= delegations[i].delegated;
+            delegation_stats.total_delegators -= 1;
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+
             delegations.remove(i);
             delegation_info.delegations = delegations;
             DELEGATED.save(
@@ -1614,7 +1628,7 @@ pub fn update_protocol_fees(
     env: Env,
     info: MessageInfo,
     delegation_address: Addr,
-    new_delegator_fees: Decimal,
+    new_protocol_fees: Decimal,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //// check if delegation_address exists////
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
@@ -1630,18 +1644,14 @@ pub fn update_protocol_fees(
             val: "Sender is not the owner of the delegation".to_string(),
         });
     }
-    if new_delegator_fees > delegation_info.delegator_fees {
+    if new_protocol_fees > delegation_info.delegator_fees || new_protocol_fees < Decimal::zero() {
         return Err(ContractError::CustomError {
-            val: "New Delegator fees cannot be greater than delegator fees".to_string(),
-        });
-    }
-    if new_delegator_fees < Decimal::zero() {
-        return Err(ContractError::CustomError {
-            val: "New Delegator fees percentage cannot be less than 0 %".to_string(),
+            val: "New Delegator fees cannot be greater than delegator fees nor can be less than 0%"
+                .to_string(),
         });
     }
     // update the protocol fees
-    delegation_info.delegator_fees = new_delegator_fees;
+    delegation_info.protocol_fees = new_protocol_fees;
     DELEGATION_INFO.save(
         deps.storage,
         delegation_address,
@@ -1980,18 +1990,24 @@ pub fn sudo(deps: DepsMut, env: Env, msg: SudoMsg) -> Result<Response, ContractE
                 });
             }
 
-            if delegation_info.protocol_fees > Decimal::one() {
+            if delegation_info.protocol_fees < Decimal::zero()
+                || delegation_info.protocol_fees > Decimal::one()
+            {
                 return Err(ContractError::CustomError {
-                    val: "Protocol fees percentage cannot be greater than 100 %".to_string(),
+                    val: "Protocol fees percentage cannot be less than 0 % or greater than 100%"
+                        .to_string(),
                 });
             }
-            if delegation_info.protocol_fees < Decimal::zero() {
+            if delegation_info.delegator_fees < Decimal::zero()
+                || delegation_info.delegator_fees > Decimal::one()
+            {
                 return Err(ContractError::CustomError {
-                    val: "Protocol fees percentage cannot be less than 0 %".to_string(),
+                    val: "Delegator fees percentage cannot be less than 0 % or greater than 100%"
+                        .to_string(),
                 });
             }
 
-            if delegation_info.delegated_address == delegation_info.fee_collector_adress {
+            if delegation_info.delegated_address == delegation_info.fee_collector_address {
                 return Err(ContractError::CustomError {
                     val: "Delegator and fee collector address cannot be same".to_string(),
                 });
@@ -2016,18 +2032,24 @@ pub fn sudo(deps: DepsMut, env: Env, msg: SudoMsg) -> Result<Response, ContractE
                 });
             }
 
-            if delegation_info.protocol_fees > Decimal::one() {
+            if delegation_info.protocol_fees < Decimal::zero()
+                || delegation_info.protocol_fees > Decimal::one()
+            {
                 return Err(ContractError::CustomError {
-                    val: "Protocol fees percentage cannot be greater than 100 %".to_string(),
+                    val: "Protocol fees percentage cannot be less than 0 % or greater than 100%"
+                        .to_string(),
                 });
             }
-            if delegation_info.protocol_fees < Decimal::zero() {
+            if delegation_info.delegator_fees < Decimal::zero()
+                || delegation_info.delegator_fees > Decimal::one()
+            {
                 return Err(ContractError::CustomError {
-                    val: "Protocol fees percentage cannot be less than 0 %".to_string(),
+                    val: "Delegator fees percentage cannot be less than 0 % or greater than 100%"
+                        .to_string(),
                 });
             }
 
-            if delegation_info.delegated_address == delegation_info.fee_collector_adress {
+            if delegation_info.delegated_address == delegation_info.fee_collector_address {
                 return Err(ContractError::CustomError {
                     val: "Delegator and fee collector address cannot be same".to_string(),
                 });
