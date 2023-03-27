@@ -808,7 +808,7 @@ fn test_vote_proposal_with_wrong_extended_pair() {
     assert_eq!(
         err,
         Err(ContractError::CustomError {
-            val: "Invalid Extended pair".to_string()
+            val: "Extended pair does not exist in proposal".to_string()
         })
     );
 }
@@ -1427,5 +1427,5 @@ fn test_change_vote() {
         .load(deps.as_ref().storage, (info.sender.clone(), 1))
         .unwrap();
     assert_eq!(vote_weight.votes[0].extended_pair, 2);
-    assert_eq!(vote_weight.votes[0].vote_weight, 50u128);
+    assert_eq!(vote_weight.votes[0].vote_weight, 25u128);
 }

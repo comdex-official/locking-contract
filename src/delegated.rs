@@ -41,7 +41,7 @@ pub fn claim_rewards_delegated(
 
     let delegation_info = delegation_info.unwrap();
 
-    if proposal_id.is_some() {
+    if  let Some(..) = proposal_id {
         let delegator_claimed = DELEGATOR_CLAIM
             .load(deps.storage, (info.sender.clone(), proposal_id.unwrap()))
             .unwrap_or_default();
@@ -52,7 +52,7 @@ pub fn claim_rewards_delegated(
         }
         let (user_coin, delegated_coin) = calculate_bribe_reward_proposal_delegated(
             deps.as_ref(),
-            env.clone(),
+            env,
             info.clone(),
             proposal_id.unwrap(),
             delegated_address,
@@ -92,7 +92,7 @@ pub fn claim_rewards_delegated(
                 continue;
             }
 
-            let (user_coin, delegated_coin) = calculate_bribe_reward_proposal_delegated(
+            let (user_coin, delegated_coins) = calculate_bribe_reward_proposal_delegated(
                 deps.as_ref(),
                 env.clone(),
                 info.clone(),
@@ -100,9 +100,9 @@ pub fn claim_rewards_delegated(
                 delegated_address.clone(),
             )?;
             let mut user_coin = user_coin;
-            let mut delegated_coin = delegated_coin;
+            let mut delegated_coin = delegated_coins;
             bribe_coins.append(&mut user_coin);
-            fee_coin.append(&mut user_coin);
+            fee_coin.append(&mut delegated_coin);
 
             DELEGATOR_CLAIM.save(deps.storage, (info.sender.clone(), proposal_id), &true)?;
 
@@ -133,8 +133,8 @@ pub fn claim_rewards_delegated(
                     amount: bribe_coins,
                 }))
         }
-    } else {
-        if !fee_coin.is_empty() {
+    } else if !fee_coin.is_empty(){
+        
             Ok(Response::new()
                 .add_attribute("method", "External Incentive Claimed")
                 .add_message(BankMsg::Send {
@@ -147,7 +147,7 @@ pub fn claim_rewards_delegated(
             })
         }
     }
-}
+
 
 pub fn calculate_bribe_reward_proposal_delegated(
     deps: Deps<ComdexQuery>,
@@ -171,7 +171,7 @@ pub fn calculate_bribe_reward_proposal_delegated(
 
     let _vote = VOTERSPROPOSAL.may_load(deps.storage, (delegated_address.clone(), proposal_id))?;
 
-    if _vote.is_some() {
+    if  let Some(..) = _vote {
         let vote = _vote.unwrap();
         for pair in vote.votes {
             let total_vote_weight = PROPOSALVOTE
@@ -187,26 +187,23 @@ pub fn calculate_bribe_reward_proposal_delegated(
 
             let mut claimable_bribe: Vec<Coin> = vec![];
             for coin in total_bribe.clone() {
-                let mut claimable_amount: Uint128 = Uint128::zero();
+                let mut _claimable_amount: Uint128 = Uint128::zero();
                 if delegation_info
                     .excluded_fee_pair
                     .contains(&pair.extended_pair)
                 {
-                    claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
+                    _claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
                         .div(Decimal::new(Uint128::from(total_vote_weight)))
                         .mul(Decimal::one() - delegation_info.protocol_fees))
                     .mul(coin.amount);
                 } else {
-                    claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
+                    _claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
                         .div(Decimal::new(Uint128::from(total_vote_weight))))
                     .mul(coin.amount);
                 }
-                let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
-                    .div(Decimal::new(Uint128::from(total_vote_weight)))
-                    .mul(Decimal::one() - delegation_info.protocol_fees))
-                .mul(coin.amount);
+                
                 let claimable_coin = Coin {
-                    amount: claimable_amount,
+                    amount: _claimable_amount,
                     denom: coin.denom,
                 };
                 claimable_bribe.push(claimable_coin);
@@ -230,7 +227,7 @@ pub fn calculate_bribe_reward_proposal_delegated(
     }
     let total_bribe_coins = bribe_coins.clone();
     let delegation_user =
-        DELEGATED.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
+        DELEGATED.may_load_at_height(deps.storage, info.sender, proposal.height)?;
     if delegation_user.is_none() {
         return Err(ContractError::CustomError {
             val: String::from("delegation does not exist"),
@@ -244,7 +241,7 @@ pub fn calculate_bribe_reward_proposal_delegated(
         .unwrap();
 
     let delegation_stats = DELEGATION_STATS
-        .may_load_at_height(deps.storage, delegated_address.clone(), proposal.height)?
+        .may_load_at_height(deps.storage, delegated_address, proposal.height)?
         .unwrap();
 
     let mut user_coin: Vec<Coin> = vec![];

@@ -5,10 +5,10 @@ use crate::helpers::get_token_supply;
 use crate::msg::{IssuedNftResponse, QueryMsg, RebaseResponse, WithdrawableResponse};
 use crate::state::{
     Delegation, DelegationInfo, DelegationStats, Emission, EmissionVaultPool, LockingPeriod,
-    Proposal, State, TokenSupply, UserDelegationInfo, Vote, Vtoken, ADMIN, APPCURRENTPROPOSAL,
-    BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION,
-    EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY,
-    TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
+    Proposal, State, TokenSupply, UserDelegationInfo, Vote, VoteResponse, Vtoken, ADMIN,
+    APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO,
+    DELEGATION_STATS, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
+    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -534,6 +534,59 @@ pub fn query_rebase_eligible(
 
     Ok(response)
 }
+
+pub fn query_current_proposal_user(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    address: Addr,
+    app_id: u64,
+) -> StdResult<Vec<VoteResponse>> {
+    let current_proposal = APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?;
+
+    let current_proposal = current_proposal.unwrap();
+    let proposal = PROPOSAL.load(deps.storage, current_proposal)?;
+
+    let mut resp = vec![];
+    for ext_pair in proposal.extended_pair {
+        let mut user_vote = 0;
+        let mut user_vote_ratio = Decimal::zero();
+        let mut total_incentive = vec![];
+        let mut total_vote = 0;
+        let proposal_vote = PROPOSALVOTE.may_load(deps.storage, (current_proposal, ext_pair))?;
+        if  let Some(..) = proposal_vote {
+            let proposal_vote = proposal_vote.unwrap();
+            total_vote = proposal_vote.u128();
+        }
+        let vote = VOTERSPROPOSAL.may_load(deps.storage, (address.clone(), current_proposal))?;
+
+        if let Some(..) = vote {
+            let vote = vote.unwrap();
+            let vote = vote.votes;
+            let vote_tmp = vote.into_iter().find(|x| x.extended_pair == ext_pair);
+             if let Some(..) = vote_tmp {
+                let vote_tmp = vote_tmp.unwrap();
+                user_vote = vote_tmp.vote_weight;
+                user_vote_ratio = vote_tmp.vote_ratio;
+            }
+        }
+        //// load bribe////
+        let bribe = BRIBES_BY_PROPOSAL.may_load(deps.storage, (current_proposal, ext_pair))?;
+        if  let Some(..) = bribe {
+            let bribe = bribe.unwrap();
+            total_incentive = bribe;
+        }
+        let vote_response = VoteResponse {
+            pair: ext_pair,
+            user_vote: user_vote,
+            user_vote_ratio: user_vote_ratio,
+            total_incentive: total_incentive,
+            total_vote: total_vote,
+        };
+        resp.push(vote_response);
+    }
+    Ok(resp)
+}
+
 pub fn query_delegation(
     deps: Deps<ComdexQuery>,
     _env: Env,
@@ -544,7 +597,7 @@ pub fn query_delegation(
     if height.is_some() {
         let delegation_user = DELEGATED.may_load_at_height(
             deps.storage,
-            delegator_address.clone(),
+            delegator_address,
             height.unwrap(),
         )?;
         if delegation_user.is_none() {
@@ -555,9 +608,9 @@ pub fn query_delegation(
             .delegations
             .into_iter()
             .find(|x| x.delegated_to == delegated_address);
-        return Ok(delegation);
+        Ok(delegation)
     } else {
-        let delegation_user = DELEGATED.may_load(deps.storage, delegator_address.clone())?;
+        let delegation_user = DELEGATED.may_load(deps.storage, delegator_address)?;
         if delegation_user.is_none() {
             return Ok(None);
         }
@@ -566,7 +619,6 @@ pub fn query_delegation(
             .delegations
             .into_iter()
             .find(|x| x.delegated_to == delegated_address);
-
         Ok(delegation)
     }
 }
@@ -575,8 +627,8 @@ pub fn query_delegator_param(
     _env: Env,
     delegated_address: Addr,
 ) -> StdResult<DelegationInfo> {
-    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegated_address.clone())?;
-    return Ok(delegation_info.unwrap());
+    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegated_address)?;
+    Ok(delegation_info.unwrap())
 }
 
 pub fn query_delegated_stats(
@@ -584,8 +636,8 @@ pub fn query_delegated_stats(
     _env: Env,
     delegated_address: Addr,
 ) -> StdResult<Option<DelegationStats>> {
-    let delegation_info = DELEGATION_STATS.may_load(deps.storage, delegated_address.clone())?;
-    return Ok(delegation_info);
+    let delegation_info = DELEGATION_STATS.may_load(deps.storage, delegated_address)?;
+    Ok(delegation_info)
 }
 
 pub fn query_user_delegation_all(
@@ -593,8 +645,8 @@ pub fn query_user_delegation_all(
     _env: Env,
     delegated_address: Addr,
 ) -> StdResult<Option<UserDelegationInfo>> {
-    let delegation_info = DELEGATED.may_load(deps.storage, delegated_address.clone())?;
-    return Ok(delegation_info);
+    let delegation_info = DELEGATED.may_load(deps.storage, delegated_address)?;
+     Ok(delegation_info)
 }
 
 pub fn query_emission_voting_power(
@@ -616,12 +668,12 @@ pub fn query_emission_voting_power(
     }
 
     let delegation =
-        DELEGATED.may_load_at_height(deps.storage, address.clone(), proposal.height)?;
-    if delegation.is_some() {
+        DELEGATED.may_load_at_height(deps.storage, address, proposal.height)?;
+    if let Some(..) = delegation {
         let delegation = delegation.unwrap();
         vote_power -= delegation.total_casted;
     }
-    return Ok(vote_power);
+    Ok(vote_power) 
 }
 
 #[cfg(test)]

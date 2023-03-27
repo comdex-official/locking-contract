@@ -66,7 +66,6 @@ pub enum ExecuteMsg {
     },
     Undelegate {
         delegation_address: Addr,
-        denom: String,
     },
     UpdateProtocolFees {
         delegate_address: Addr,
@@ -229,32 +228,32 @@ pub struct RebaseResponse {
     pub rebase_amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema,Eq)]
 pub struct WithdrawableResponse {
     pub amount: Coin,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema,Eq)]
 pub struct UnlockedTokensResponse {
     pub tokens: Vec<Coin>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema,Eq)]
 pub struct LockedTokensResponse {
     pub tokens: Vec<Coin>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema,Eq)]
 pub struct IssuedVtokensResponse {
     pub vtokens: Vec<Vtoken>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema,Eq)]
 pub struct ProposalVoteRespons {
     pub proposal_pair_data: Vec<Vote>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema,Eq)]
 pub struct ProposalPairVote {
     pub extended_pair_id: u64,
     pub my_vote: Uint128,

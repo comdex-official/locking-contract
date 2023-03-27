@@ -211,8 +211,7 @@ pub fn execute(
         } => delegate(deps, env, info, delegation_address, denom, ratio),
         ExecuteMsg::Undelegate {
             delegation_address,
-            denom,
-        } => undelegate(deps, env, info, delegation_address, denom),
+        } => undelegate(deps, env, info, delegation_address),
         ExecuteMsg::UpdateProtocolFees {
             delegate_address,
             fees,
@@ -242,7 +241,7 @@ pub fn delegate(
     }
 
     ///// check if sender is not delegated
-    if info.sender.clone() == delegation_address {
+    if info.sender == delegation_address {
         return Err(ContractError::CustomError {
             val: "Sender is not allowed to self-delegated".to_string(),
         });
@@ -394,7 +393,6 @@ pub fn undelegate(
     env: Env,
     info: MessageInfo,
     delegation_address: Addr,
-    denom: String,
 ) -> Result<Response<ComdexMessages>, ContractError> {
     //// check if delegation_address exists////
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
@@ -767,22 +765,28 @@ pub fn handle_withdraw(
         vtokens_denom.remove(index);
     }
 
-    let mut delegation = DELEGATED
-        .may_load(deps.storage, info.sender.clone())?
-        .unwrap();
-    let total_delegated = delegation.total_casted;
+    let delegation = DELEGATED
+        .may_load(deps.storage, info.sender.clone())?;
 
-    if total_delegated < vote_power - vwithdrawable {
-    } else {
+    let mut total_delegated = 0u128;
+    if delegation.is_some()
+    {
+        let delegation=delegation.clone().unwrap();
+        total_delegated = delegation.total_casted;
+
+    }
+
+
+   if total_delegated > vote_power - vwithdrawable {
+        let mut delegation=delegation.unwrap().clone(); 
         for delegation_temp in delegation.delegations.iter_mut() {
             let rhs = Decimal::from_ratio(vote_power - vwithdrawable, total_delegated);
             let temp = delegation_temp.delegated;
             let mut delegation_stats = DELEGATION_STATS
                 .may_load(deps.storage, delegation_temp.delegated_to.clone())?
                 .unwrap();
-            delegation_stats.total_delegated = delegation_stats.total_delegated - temp;
-            delegation_stats.total_delegated = delegation_stats.total_delegated
-                + rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
+            delegation_stats.total_delegated -= temp;
+            delegation_stats.total_delegated += rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
 
             delegation_temp.delegated = rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
             DELEGATION_STATS.save(
@@ -1042,8 +1046,8 @@ pub fn claim_rewards(
         Some(val) => val,
         None => vec![],
     };
-    let mut bribe_coins = vec![];
-    if proposal_id.is_some() {
+    let mut _bribe_coin = vec![];
+    if let Some(..) = proposal_id {
         if !all_proposals.contains(&proposal_id.unwrap()) {
             return Err(ContractError::CustomError {
                 val: String::from("proposal not completed"),
@@ -1060,9 +1064,9 @@ pub fn claim_rewards(
             });
         }
 
-        bribe_coins = calculate_bribe_reward_proposal(
+        _bribe_coin = calculate_bribe_reward_proposal(
             deps.as_ref(),
-            env.clone(),
+            env,
             info.clone(),
             proposal_id.unwrap(),
         )?;
@@ -1079,34 +1083,34 @@ pub fn claim_rewards(
         claimed_proposal.push(proposal_id.unwrap());
         claimed_proposal.sort();
         VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
-        bribe_coins.sort_by_key(|element| element.denom.clone());
+        _bribe_coin.sort_by_key(|element| element.denom.clone());
     } else {
         let (_bribe_coins, claimed_proposal) = calculate_bribe_reward(
             deps.as_ref(),
-            env.clone(),
+            env,
             info.clone(),
             all_proposals.clone(),
             app_id,
         )?;
 
-        bribe_coins = _bribe_coins;
+        _bribe_coin = _bribe_coins;
         MAXPROPOSALCLAIMED.save(
             deps.storage,
             (app_id, info.sender.clone()),
             all_proposals.last().unwrap(),
         )?;
         VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
-        bribe_coins.sort_by_key(|element| element.denom.clone());
+        _bribe_coin.sort_by_key(|element| element.denom.clone());
         for proposal in claimed_proposal {
             VOTERS_CLAIM.save(deps.storage, (info.sender.clone(), proposal), &true)?;
         }
     }
-    if !bribe_coins.is_empty() {
+    if !_bribe_coin.is_empty() {
         Ok(Response::new()
             .add_attribute("method", "External Incentive Claimed")
             .add_message(BankMsg::Send {
                 to_address: info.sender.to_string(),
-                amount: bribe_coins,
+                amount: _bribe_coin,
             }))
     } else {
         Err(ContractError::CustomError {
@@ -1197,9 +1201,9 @@ pub fn calculate_bribe_reward_proposal(
 ) -> Result<Vec<Coin>, ContractError> {
     let mut bribe_coins: Vec<Coin> = vec![];
 
-    let _vote = VOTERSPROPOSAL.may_load(deps.storage, (info.sender.clone(), proposal_id))?;
+    let _vote = VOTERSPROPOSAL.may_load(deps.storage, (info.sender, proposal_id))?;
 
-    if _vote.is_some() {
+    if let Some(..) = _vote {
         let vote = _vote.unwrap();
         for pair in vote.votes {
             let total_vote_weight = PROPOSALVOTE
@@ -1697,7 +1701,7 @@ pub fn vote_proposal(
     }
 
     // check if vote sequence is correct
-    if extended_pair.len() != ratio.clone().len() {
+    if extended_pair.len() != ratio.len() {
         return Err(ContractError::CustomError {
             val: "Invalid ratio".to_string(),
         });
@@ -1705,7 +1709,7 @@ pub fn vote_proposal(
 
     let mut total_ration = Decimal::zero();
     for ratio in ratio.iter() {
-        total_ration = total_ration + ratio;
+        total_ration +=ratio;
     }
 
     //// check if total ratio is 100%
@@ -1733,9 +1737,9 @@ pub fn vote_proposal(
 
     //// check if extended pair exists in proposal's extended pair
 
-    if !extended_pairs_proposal
+    if !extended_pair
         .iter()
-        .all(|item| extended_pair.contains(item))
+        .all(|item| extended_pairs_proposal.contains(item))
     {
         return Err(ContractError::CustomError {
             val: "Extended pair does not exist in proposal".to_string(),
@@ -1769,7 +1773,7 @@ pub fn vote_proposal(
     let delegator_locked =
         DELEGATION_STATS.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
 
-    if delegator_locked.is_some() {
+    if  let Some(..) = delegator_locked {
         let delegator_locked = delegator_locked.unwrap().total_delegated;
         vote_power += delegator_locked;
     }
@@ -1777,7 +1781,7 @@ pub fn vote_proposal(
     //// decrease voting power if delegated
     let delegation =
         DELEGATED.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
-    if delegation.is_some() {
+        if let Some(..) = delegation {
         let delegation = delegation.unwrap();
         vote_power -= delegation.total_casted;
     }
@@ -1820,7 +1824,7 @@ pub fn vote_proposal(
             (proposal_id, pair_vote.extended_pair),
             &proposal_vote,
         )?;
-        proposal.total_voted_weight -= pair_vote.vote_weight;
+        proposal.total_voted_weight += pair_vote.vote_weight;
     }
     let vote = Vote {
         voting_power_total: vote_power,
