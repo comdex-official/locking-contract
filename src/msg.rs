@@ -178,6 +178,11 @@ pub enum QueryMsg {
     UserDelegationStats {
         delegated_address: Addr,
     },
+    UserEmissionVoting{
+        address: Addr,
+        proposal_id: u64,
+        denom: String,
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]

@@ -121,6 +121,9 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::UserDelegationStats { delegated_address } => {
             to_binary(&query_user_delegation_all(deps, env, delegated_address)?)
         }
+        QueryMsg::UserEmissionVoting { address, proposal_id, denom } => {
+            to_binary(&query_emission_voting_power(deps, env, address, proposal_id, denom)?)
+        }
 
         _ => panic!("Not implemented"),
     }
