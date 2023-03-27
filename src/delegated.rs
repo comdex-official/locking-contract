@@ -1,4 +1,5 @@
 use crate::error::ContractError;
+use crate::helpers::{query_app_exists, query_extended_pair_by_app, query_pool_by_app};
 use crate::state::{
     BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO, DELEGATION_STATS,
     DELEGATOR_CLAIM, DELEGATOR_CLAIMED_PROPOSALS, PROPOSAL, PROPOSALVOTE, VOTERSPROPOSAL,
@@ -41,7 +42,7 @@ pub fn claim_rewards_delegated(
 
     let delegation_info = delegation_info.unwrap();
 
-    if  let Some(..) = proposal_id {
+    if let Some(..) = proposal_id {
         let delegator_claimed = DELEGATOR_CLAIM
             .load(deps.storage, (info.sender.clone(), proposal_id.unwrap()))
             .unwrap_or_default();
@@ -133,21 +134,19 @@ pub fn claim_rewards_delegated(
                     amount: bribe_coins,
                 }))
         }
-    } else if !fee_coin.is_empty(){
-        
-            Ok(Response::new()
-                .add_attribute("method", "External Incentive Claimed")
-                .add_message(BankMsg::Send {
-                    to_address: delegation_info.delegated_address.to_string(),
-                    amount: fee_coin,
-                }))
-        } else {
-            Err(ContractError::CustomError {
-                val: String::from("No rewards to claim."),
-            })
-        }
+    } else if !fee_coin.is_empty() {
+        Ok(Response::new()
+            .add_attribute("method", "External Incentive Claimed")
+            .add_message(BankMsg::Send {
+                to_address: delegation_info.delegated_address.to_string(),
+                amount: fee_coin,
+            }))
+    } else {
+        Err(ContractError::CustomError {
+            val: String::from("No rewards to claim."),
+        })
     }
-
+}
 
 pub fn calculate_bribe_reward_proposal_delegated(
     deps: Deps<ComdexQuery>,
@@ -171,7 +170,7 @@ pub fn calculate_bribe_reward_proposal_delegated(
 
     let _vote = VOTERSPROPOSAL.may_load(deps.storage, (delegated_address.clone(), proposal_id))?;
 
-    if  let Some(..) = _vote {
+    if let Some(..) = _vote {
         let vote = _vote.unwrap();
         for pair in vote.votes {
             let total_vote_weight = PROPOSALVOTE
@@ -201,7 +200,6 @@ pub fn calculate_bribe_reward_proposal_delegated(
                         .div(Decimal::new(Uint128::from(total_vote_weight))))
                     .mul(coin.amount);
                 }
-                
                 let claimable_coin = Coin {
                     amount: _claimable_amount,
                     denom: coin.denom,
@@ -268,4 +266,66 @@ pub fn calculate_bribe_reward_proposal_delegated(
     }
 
     Ok((user_coin, delegated_coin))
+}
+
+// update excluded_fee_pair
+pub fn update_excluded_fee_pair(
+    deps: DepsMut<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    delegation_address: Addr,
+    harbor_app_id: u64,
+    cswap_app_id: u64,
+    excluded_fee_pair: Vec<u64>,
+) -> Result<Response<ComdexMessages>, ContractError> {
+    //// check if delegation_address exists////
+    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
+    if delegation_info.is_none() {
+        return Err(ContractError::CustomError {
+            val: "Delegation address does not exist".to_string(),
+        });
+    }
+    // check if the sender is the owner of the delegation
+    let mut delegation_info = delegation_info.unwrap();
+    if delegation_info.delegated_address != info.sender {
+        return Err(ContractError::CustomError {
+            val: "Sender is not the owner of the delegation".to_string(),
+        });
+    }
+    //check if app exist
+    let app_response = query_app_exists(deps.as_ref(), harbor_app_id)?;
+
+    //check if app exist
+    let app_response = query_app_exists(deps.as_ref(), cswap_app_id)?;
+
+    //get ext pairs vec from app
+    let ext_pairs = query_extended_pair_by_app(deps.as_ref(), harbor_app_id)?;
+
+    //get pools vec from app
+    let mut pools = query_pool_by_app(deps.as_ref(), cswap_app_id)?;
+    for pool in pools.iter_mut() {
+        *pool *= 1000000;
+    }
+
+    for pair in excluded_fee_pair.clone() {
+        if delegation_info.excluded_fee_pair.contains(&pair)
+            || !ext_pairs.contains(&pair)
+            || !pools.contains(&pair)
+        {
+            continue;
+        }
+        delegation_info.excluded_fee_pair.push(pair);
+    }
+    DELEGATION_INFO.save(
+        deps.storage,
+        delegation_address,
+        &delegation_info,
+        env.block.height,
+    )?;
+    Ok(Response::new()
+        .add_attribute("method", "update_excluded_fee_pair")
+        .add_attribute(
+            "excluded_fee_pair",
+            format!("{:?}", delegation_info.excluded_fee_pair),
+        ))
 }

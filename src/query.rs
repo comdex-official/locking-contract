@@ -101,6 +101,9 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             gov_token_denom,
             gov_token_id,
         )?),
+        QueryMsg::CurrentProposalUser { app_id, address } => {
+            to_binary(&query_current_proposal_user(deps, env, address, app_id)?)
+        }
         QueryMsg::DelegationRequest {
             delegated_address,
             delegator_address,
@@ -121,9 +124,17 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::UserDelegationStats { delegated_address } => {
             to_binary(&query_user_delegation_all(deps, env, delegated_address)?)
         }
-        QueryMsg::UserEmissionVoting { address, proposal_id, denom } => {
-            to_binary(&query_emission_voting_power(deps, env, address, proposal_id, denom)?)
-        }
+        QueryMsg::UserEmissionVoting {
+            address,
+            proposal_id,
+            denom,
+        } => to_binary(&query_emission_voting_power(
+            deps,
+            env,
+            address,
+            proposal_id,
+            denom,
+        )?),
 
         _ => panic!("Not implemented"),
     }
@@ -556,7 +567,7 @@ pub fn query_current_proposal_user(
         let mut total_incentive = vec![];
         let mut total_vote = 0;
         let proposal_vote = PROPOSALVOTE.may_load(deps.storage, (current_proposal, ext_pair))?;
-        if  let Some(..) = proposal_vote {
+        if let Some(..) = proposal_vote {
             let proposal_vote = proposal_vote.unwrap();
             total_vote = proposal_vote.u128();
         }
@@ -566,7 +577,7 @@ pub fn query_current_proposal_user(
             let vote = vote.unwrap();
             let vote = vote.votes;
             let vote_tmp = vote.into_iter().find(|x| x.extended_pair == ext_pair);
-             if let Some(..) = vote_tmp {
+            if let Some(..) = vote_tmp {
                 let vote_tmp = vote_tmp.unwrap();
                 user_vote = vote_tmp.vote_weight;
                 user_vote_ratio = vote_tmp.vote_ratio;
@@ -574,7 +585,7 @@ pub fn query_current_proposal_user(
         }
         //// load bribe////
         let bribe = BRIBES_BY_PROPOSAL.may_load(deps.storage, (current_proposal, ext_pair))?;
-        if  let Some(..) = bribe {
+        if let Some(..) = bribe {
             let bribe = bribe.unwrap();
             total_incentive = bribe;
         }
@@ -598,11 +609,8 @@ pub fn query_delegation(
     height: Option<u64>,
 ) -> StdResult<Option<Delegation>> {
     if height.is_some() {
-        let delegation_user = DELEGATED.may_load_at_height(
-            deps.storage,
-            delegator_address,
-            height.unwrap(),
-        )?;
+        let delegation_user =
+            DELEGATED.may_load_at_height(deps.storage, delegator_address, height.unwrap())?;
         if delegation_user.is_none() {
             return Ok(None);
         }
@@ -649,7 +657,7 @@ pub fn query_user_delegation_all(
     delegated_address: Addr,
 ) -> StdResult<Option<UserDelegationInfo>> {
     let delegation_info = DELEGATED.may_load(deps.storage, delegated_address)?;
-     Ok(delegation_info)
+    Ok(delegation_info)
 }
 
 pub fn query_emission_voting_power(
@@ -670,13 +678,12 @@ pub fn query_emission_voting_power(
         vote_power += vtoken.token.amount.u128();
     }
 
-    let delegation =
-        DELEGATED.may_load_at_height(deps.storage, address, proposal.height)?;
+    let delegation = DELEGATED.may_load_at_height(deps.storage, address, proposal.height)?;
     if let Some(..) = delegation {
         let delegation = delegation.unwrap();
         vote_power -= delegation.total_casted;
     }
-    Ok(vote_power) 
+    Ok(vote_power)
 }
 
 #[cfg(test)]

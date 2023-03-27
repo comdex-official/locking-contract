@@ -1,3 +1,4 @@
+use crate::delegated::update_excluded_fee_pair;
 use crate::error::ContractError;
 use crate::helpers::{
     get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
@@ -209,13 +210,27 @@ pub fn execute(
             denom,
             ratio,
         } => delegate(deps, env, info, delegation_address, denom, ratio),
-        ExecuteMsg::Undelegate {
-            delegation_address,
-        } => undelegate(deps, env, info, delegation_address),
+        ExecuteMsg::Undelegate { delegation_address } => {
+            undelegate(deps, env, info, delegation_address)
+        }
         ExecuteMsg::UpdateProtocolFees {
             delegate_address,
             fees,
         } => update_protocol_fees(deps, env, info, delegate_address, fees),
+        ExecuteMsg::UpdateExcludedFeePair {
+            delegate_address,
+            harbor_app_id,
+            cswap_app_id,
+            excluded_fee_pair,
+        } => update_excluded_fee_pair(
+            deps,
+            env,
+            info,
+            delegate_address,
+            harbor_app_id,
+            cswap_app_id,
+            excluded_fee_pair,
+        ),
         _ => Err(ContractError::CustomError {
             val: "Invalid message".to_string(),
         }),
@@ -765,20 +780,16 @@ pub fn handle_withdraw(
         vtokens_denom.remove(index);
     }
 
-    let delegation = DELEGATED
-        .may_load(deps.storage, info.sender.clone())?;
+    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
 
     let mut total_delegated = 0u128;
-    if delegation.is_some()
-    {
-        let delegation=delegation.clone().unwrap();
+    if delegation.is_some() {
+        let delegation = delegation.clone().unwrap();
         total_delegated = delegation.total_casted;
-
     }
 
-
-   if total_delegated > vote_power - vwithdrawable {
-        let mut delegation=delegation.unwrap().clone(); 
+    if total_delegated > vote_power - vwithdrawable {
+        let mut delegation = delegation.unwrap().clone();
         for delegation_temp in delegation.delegations.iter_mut() {
             let rhs = Decimal::from_ratio(vote_power - vwithdrawable, total_delegated);
             let temp = delegation_temp.delegated;
@@ -786,7 +797,8 @@ pub fn handle_withdraw(
                 .may_load(deps.storage, delegation_temp.delegated_to.clone())?
                 .unwrap();
             delegation_stats.total_delegated -= temp;
-            delegation_stats.total_delegated += rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
+            delegation_stats.total_delegated +=
+                rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
 
             delegation_temp.delegated = rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
             DELEGATION_STATS.save(
@@ -1709,7 +1721,7 @@ pub fn vote_proposal(
 
     let mut total_ration = Decimal::zero();
     for ratio in ratio.iter() {
-        total_ration +=ratio;
+        total_ration += ratio;
     }
 
     //// check if total ratio is 100%
@@ -1773,7 +1785,7 @@ pub fn vote_proposal(
     let delegator_locked =
         DELEGATION_STATS.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
 
-    if  let Some(..) = delegator_locked {
+    if let Some(..) = delegator_locked {
         let delegator_locked = delegator_locked.unwrap().total_delegated;
         vote_power += delegator_locked;
     }
@@ -1781,7 +1793,7 @@ pub fn vote_proposal(
     //// decrease voting power if delegated
     let delegation =
         DELEGATED.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
-        if let Some(..) = delegation {
+    if let Some(..) = delegation {
         let delegation = delegation.unwrap();
         vote_power -= delegation.total_casted;
     }
