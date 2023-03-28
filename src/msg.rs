@@ -71,6 +71,11 @@ pub enum ExecuteMsg {
         delegate_address: Addr,
         fees: Decimal,
     },
+    ClaimRewardsDelegate {
+        delegated_address: Addr,
+        proposal_id: Option<u64>,
+        app_id: u64,
+    },
     UpdateExcludedFeePair {
         delegate_address: Addr,
         harbor_app_id: u64,
