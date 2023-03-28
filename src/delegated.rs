@@ -293,10 +293,10 @@ pub fn update_excluded_fee_pair(
         });
     }
     //check if app exist
-    let app_response = query_app_exists(deps.as_ref(), harbor_app_id)?;
+    let _ = query_app_exists(deps.as_ref(), harbor_app_id)?;
 
     //check if app exist
-    let app_response = query_app_exists(deps.as_ref(), cswap_app_id)?;
+    let _ = query_app_exists(deps.as_ref(), cswap_app_id)?;
 
     //get ext pairs vec from app
     let ext_pairs = query_extended_pair_by_app(deps.as_ref(), harbor_app_id)?;

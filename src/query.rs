@@ -1,13 +1,11 @@
-use std::borrow::Borrow;
-
 use crate::error::ContractError;
 use crate::helpers::get_token_supply;
-use crate::msg::{IssuedNftResponse, QueryMsg, RebaseResponse, WithdrawableResponse};
+use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse};
 use crate::state::{
     Delegation, DelegationInfo, DelegationStats, Emission, EmissionVaultPool, LockingPeriod,
     Proposal, State, TokenSupply, UserDelegationInfo, Vote, VoteResponse, Vtoken,RebaseAllResponse,RewardAllResponse ,ADMIN,
     APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO,
-    DELEGATION_STATS, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
+    DELEGATION_STATS, EMISSION, EMISSION_REWARD, PROPOSAL, PROPOSALVOTE,
     REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,VOTERS_CLAIM
 };
 use comdex_bindings::ComdexQuery;
