@@ -1,4 +1,4 @@
-use crate::delegated::update_excluded_fee_pair;
+use crate::delegated::{claim_rewards_delegated, update_excluded_fee_pair};
 use crate::error::ContractError;
 use crate::helpers::{
     get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
@@ -217,6 +217,11 @@ pub fn execute(
             delegate_address,
             fees,
         } => update_protocol_fees(deps, env, info, delegate_address, fees),
+        ExecuteMsg::ClaimRewardsDelegate {
+            delegated_address,
+            proposal_id,
+            app_id,
+        } => claim_rewards_delegated(deps, env, info, delegated_address, proposal_id, app_id),
         ExecuteMsg::UpdateExcludedFeePair {
             delegate_address,
             harbor_app_id,
