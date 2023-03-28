@@ -193,6 +193,21 @@ pub struct VoteResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct RewardAllResponse { 
+    pub proposal_id: u64,
+    pub total_incentive: Vec<Coin>,
+    pub claimed: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct RebaseAllResponse { 
+    pub proposal_id: u64,
+    pub rebase: Uint128,
+    pub claimed: bool,
+}
+
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct DelegationStats {
     pub total_delegated: u128,
     pub total_delegators: u64,

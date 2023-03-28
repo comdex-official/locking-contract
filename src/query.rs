@@ -5,10 +5,10 @@ use crate::helpers::get_token_supply;
 use crate::msg::{IssuedNftResponse, QueryMsg, RebaseResponse, WithdrawableResponse};
 use crate::state::{
     Delegation, DelegationInfo, DelegationStats, Emission, EmissionVaultPool, LockingPeriod,
-    Proposal, State, TokenSupply, UserDelegationInfo, Vote, VoteResponse, Vtoken, ADMIN,
+    Proposal, State, TokenSupply, UserDelegationInfo, Vote, VoteResponse, Vtoken,RebaseAllResponse,RewardAllResponse ,ADMIN,
     APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO,
     DELEGATION_STATS, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
-    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
+    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,VOTERS_CLAIM
 };
 use comdex_bindings::ComdexQuery;
 use cosmwasm_std::{
@@ -397,11 +397,7 @@ pub fn query_bribe_eligible(
     env: Env,
     address: Addr,
     app_id: u64,
-) -> StdResult<Vec<Coin>> {
-    let max_proposal_claimed = MAXPROPOSALCLAIMED
-        .load(deps.storage, (app_id, address.clone()))
-        .unwrap_or_default();
-
+) -> StdResult<Vec<RewardAllResponse>> {
     let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,
         None => vec![],
@@ -410,33 +406,30 @@ pub fn query_bribe_eligible(
     let bribe_coins = calculate_bribe_reward_query(
         deps,
         env,
-        max_proposal_claimed,
         all_proposals,
-        address.borrow(),
+        address.clone(),
         app_id,
-    );
-    Ok(bribe_coins.unwrap_or_default())
+    ).unwrap();
+    Ok(bribe_coins)
 }
 
 pub fn calculate_bribe_reward_query(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    max_proposal_claimed: u64,
     all_proposals: Vec<u64>,
-    address: &Addr,
+    address: Addr,
     _app_id: u64,
-) -> Result<Vec<Coin>, ContractError> {
+) -> Result<Vec<RewardAllResponse>, ContractError> {
+
+    let mut resp:Vec<RewardAllResponse>=vec![];
     //check if active proposal
-    let mut bribe_coins: Vec<Coin> = vec![];
     for proposalid in all_proposals {
-        if proposalid <= max_proposal_claimed {
-            continue;
-        }
+        let mut bribe_coins: Vec<Coin> = vec![];
+        let claimed = VOTERS_CLAIM.may_load(deps.storage, (address.clone(),proposalid))?.unwrap_or_default();
         let vote = match VOTERSPROPOSAL.may_load(deps.storage, (address.to_owned(), proposalid))? {
             Some(val) => val,
             None => continue,
         };
-
         for pair in vote.votes {
             let total_vote_weight = PROPOSALVOTE
                 .load(deps.storage, (proposalid, pair.extended_pair))?
@@ -476,11 +469,21 @@ pub fn calculate_bribe_reward_query(
                 }
             }
         }
+        let response=RewardAllResponse{
+            proposal_id:proposalid,
+            total_incentive:bribe_coins,
+            claimed:claimed
+        };
+        resp.push(response);
+
+
+
+
     }
 
     //// send bank message to band
 
-    Ok(bribe_coins)
+    Ok(resp)
 }
 
 pub fn query_rebase_eligible(
@@ -489,26 +492,23 @@ pub fn query_rebase_eligible(
     address: Addr,
     app_id: u64,
     denom: String,
-) -> StdResult<Vec<RebaseResponse>> {
-    let mut response: Vec<RebaseResponse> = vec![];
+) -> StdResult<Vec<RebaseAllResponse>> {
+    let mut response: Vec<RebaseAllResponse> = vec![];
     let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,
         None => vec![],
     };
     for proposal_id_param in all_proposals {
         let has_rebased =
-            REBASE_CLAIMED.may_load(deps.storage, (address.clone(), proposal_id_param))?;
-        if has_rebased.is_none() {
+            REBASE_CLAIMED.may_load(deps.storage, (address.clone(), proposal_id_param))?.unwrap_or_default();
             let proposal = PROPOSAL.load(deps.storage, proposal_id_param)?;
             if !proposal.emission_completed {
                 continue;
             } else {
                 let supply = SUPPLY
-                    .may_load_at_height(deps.storage, &denom, proposal.height)?
-                    .unwrap();
-                if supply.token == 0 {
-                    continue;
-                }
+                    .may_load_at_height(deps.storage, &denom, proposal.height)?.unwrap();
+
+                
                 let total_locked: u128 = supply.token;
                 let total_rebase_amount: u128 = proposal.rebase_distributed;
                 let vtokens = match VTOKENS.may_load_at_height(
@@ -535,15 +535,14 @@ pub fn query_rebase_eligible(
                 let rebase_amount_param = (Uint128::from(total_rebase_amount)
                     .checked_mul(Uint128::from(sum))?)
                 .checked_div(Uint128::from(total_locked))?;
-                let rebase_response = RebaseResponse {
+                let rebase_response = RebaseAllResponse {
                     proposal_id: proposal_id_param,
-                    rebase_amount: rebase_amount_param,
+                    rebase: rebase_amount_param,
+                    claimed: has_rebased,
                 };
                 response.push(rebase_response);
             }
-        } else {
-            continue;
-        }
+        
     }
 
     Ok(response)
