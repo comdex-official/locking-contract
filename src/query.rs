@@ -120,8 +120,8 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::DelegationStats { delegated_address } => {
             to_binary(&query_delegated_stats(deps, env, delegated_address)?)
         }
-        QueryMsg::UserDelegationStats { delegated_address } => {
-            to_binary(&query_user_delegation_all(deps, env, delegated_address)?)
+        QueryMsg::UserDelegationStats { delegator_address } => {
+            to_binary(&query_user_delegation_all(deps, env, delegator_address)?)
         }
         QueryMsg::UserEmissionVoting {
             address,
@@ -639,9 +639,9 @@ pub fn query_delegator_param(
     deps: Deps<ComdexQuery>,
     _env: Env,
     delegated_address: Addr,
-) -> StdResult<DelegationInfo> {
+) -> StdResult<Option<DelegationInfo>> {
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegated_address)?;
-    Ok(delegation_info.unwrap())
+    Ok(delegation_info)
 }
 
 pub fn query_delegated_stats(
@@ -656,9 +656,9 @@ pub fn query_delegated_stats(
 pub fn query_user_delegation_all(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    delegated_address: Addr,
+    delegator_address: Addr,
 ) -> StdResult<Option<UserDelegationInfo>> {
-    let delegation_info = DELEGATED.may_load(deps.storage, delegated_address)?;
+    let delegation_info = DELEGATED.may_load(deps.storage, delegator_address)?;
     Ok(delegation_info)
 }
 

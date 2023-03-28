@@ -24,6 +24,9 @@ pub fn delegate(
     denom: String,
     ratio: Decimal,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    if !info.funds.is_empty() {
+        return Err(ContractError::FundsNotAllowed {});
+    }
     //// check if delegation_address exists////
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
     if delegation_info.is_none() {
@@ -186,6 +189,9 @@ pub fn undelegate(
     info: MessageInfo,
     delegation_address: Addr,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    if !info.funds.is_empty() {
+        return Err(ContractError::FundsNotAllowed {});
+    }
     //// check if delegation_address exists////
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
     if delegation_info.is_none() {
@@ -513,6 +519,9 @@ pub fn update_excluded_fee_pair(
     cswap_app_id: u64,
     excluded_fee_pair: Vec<u64>,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    if !info.funds.is_empty() {
+        return Err(ContractError::FundsNotAllowed {});
+    }
     //// check if delegation_address exists////
     let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
     if delegation_info.is_none() {
@@ -573,6 +582,9 @@ pub fn delegated_protocol_fee_claim(
     app_id: u64,
     proposal_id: u64,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    if !info.funds.is_empty() {
+        return Err(ContractError::FundsNotAllowed {});
+    }
     let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
 
     let delegation_info = DELEGATION_INFO.may_load_at_height(

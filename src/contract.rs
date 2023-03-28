@@ -1604,7 +1604,7 @@ pub fn vote_proposal(
     //// decrease voting power if delegated
     let delegation =
         DELEGATED.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
-    if let Some(..) = delegation {
+    if delegation.is_some() {
         let delegation = delegation.unwrap();
         vote_power -= delegation.total_casted;
     }
