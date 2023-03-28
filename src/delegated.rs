@@ -123,7 +123,7 @@ pub fn claim_rewards_delegated(
                     amount: bribe_coins,
                 })
                 .add_message(BankMsg::Send {
-                    to_address: info.sender.to_string(),
+                    to_address: delegation_info.fee_collector_address.to_string(),
                     amount: fee_coin,
                 }))
         } else {
@@ -138,7 +138,7 @@ pub fn claim_rewards_delegated(
         Ok(Response::new()
             .add_attribute("method", "External Incentive Claimed")
             .add_message(BankMsg::Send {
-                to_address: delegation_info.delegated_address.to_string(),
+                to_address: delegation_info.fee_collector_address.to_string(),
                 amount: fee_coin,
             }))
     } else {

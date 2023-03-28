@@ -36,7 +36,7 @@ pub enum Status {
     Unlocked,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema,Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct Vtoken {
     /// amount of token being locked
@@ -109,7 +109,7 @@ pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
     Strategy::EveryBlock,
 );
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema,Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct Proposal {
     pub app_id: u64,
     pub voting_start_time: Timestamp,
@@ -193,19 +193,18 @@ pub struct VoteResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
-pub struct RewardAllResponse { 
+pub struct RewardAllResponse {
     pub proposal_id: u64,
     pub total_incentive: Vec<Coin>,
     pub claimed: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
-pub struct RebaseAllResponse { 
+pub struct RebaseAllResponse {
     pub proposal_id: u64,
     pub rebase: Uint128,
     pub claimed: bool,
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct DelegationStats {

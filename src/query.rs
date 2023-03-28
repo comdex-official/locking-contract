@@ -3,12 +3,13 @@ use crate::helpers::get_token_supply;
 use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse};
 use crate::state::{
     Delegation, DelegationInfo, DelegationStats, Emission, EmissionVaultPool, LockingPeriod,
-    Proposal, State, TokenSupply, UserDelegationInfo, Vote, VoteResponse, Vtoken,RebaseAllResponse,RewardAllResponse ,ADMIN,
-    APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO,
-    DELEGATION_STATS, EMISSION, EMISSION_REWARD, PROPOSAL, PROPOSALVOTE,
-    REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,VOTERS_CLAIM
+    Proposal, RebaseAllResponse, RewardAllResponse, State, TokenSupply, UserDelegationInfo, Vote,
+    VoteResponse, Vtoken, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS,
+    DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION, EMISSION_REWARD, PROPOSAL,
+    PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_VOTE,
+    VTOKENS,
 };
-use comdex_bindings::{ComdexQuery,GetPoolByAppResponse};
+use comdex_bindings::{ComdexQuery, GetPoolByAppResponse};
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Decimal, Deps, Env, QueryRequest, StdError,
     StdResult, Uint128, WasmQuery,
@@ -413,13 +414,8 @@ pub fn query_bribe_eligible(
         None => vec![],
     };
 
-    let bribe_coins = calculate_bribe_reward_query(
-        deps,
-        env,
-        all_proposals,
-        address.clone(),
-        app_id,
-    ).unwrap();
+    let bribe_coins =
+        calculate_bribe_reward_query(deps, env, all_proposals, address.clone(), app_id).unwrap();
     Ok(bribe_coins)
 }
 
@@ -430,12 +426,13 @@ pub fn calculate_bribe_reward_query(
     address: Addr,
     _app_id: u64,
 ) -> Result<Vec<RewardAllResponse>, ContractError> {
-
-    let mut resp:Vec<RewardAllResponse>=vec![];
+    let mut resp: Vec<RewardAllResponse> = vec![];
     //check if active proposal
     for proposalid in all_proposals {
         let mut bribe_coins: Vec<Coin> = vec![];
-        let claimed = VOTERS_CLAIM.may_load(deps.storage, (address.clone(),proposalid))?.unwrap_or_default();
+        let claimed = VOTERS_CLAIM
+            .may_load(deps.storage, (address.clone(), proposalid))?
+            .unwrap_or_default();
         let vote = match VOTERSPROPOSAL.may_load(deps.storage, (address.to_owned(), proposalid))? {
             Some(val) => val,
             None => continue,
@@ -479,10 +476,10 @@ pub fn calculate_bribe_reward_query(
                 }
             }
         }
-        let response=RewardAllResponse{
-            proposal_id:proposalid,
-            total_incentive:bribe_coins,
-            claimed:claimed
+        let response = RewardAllResponse {
+            proposal_id: proposalid,
+            total_incentive: bribe_coins,
+            claimed: claimed,
         };
         resp.push(response);
     }
@@ -505,50 +502,50 @@ pub fn query_rebase_eligible(
         None => vec![],
     };
     for proposal_id_param in all_proposals {
-        let has_rebased =
-            REBASE_CLAIMED.may_load(deps.storage, (address.clone(), proposal_id_param))?.unwrap_or_default();
-            let proposal = PROPOSAL.load(deps.storage, proposal_id_param)?;
-            if !proposal.emission_completed {
+        let has_rebased = REBASE_CLAIMED
+            .may_load(deps.storage, (address.clone(), proposal_id_param))?
+            .unwrap_or_default();
+        let proposal = PROPOSAL.load(deps.storage, proposal_id_param)?;
+        if !proposal.emission_completed {
+            continue;
+        } else {
+            let supply = SUPPLY
+                .may_load_at_height(deps.storage, &denom, proposal.height)?
+                .unwrap();
+
+            let total_locked: u128 = supply.token;
+            let total_rebase_amount: u128 = proposal.rebase_distributed;
+            let vtokens = match VTOKENS.may_load_at_height(
+                deps.storage,
+                (address.clone(), &denom),
+                proposal.height,
+            )? {
+                Some(val) => val,
+                None => vec![],
+            };
+            if vtokens.is_empty() {
                 continue;
-            } else {
-                let supply = SUPPLY
-                    .may_load_at_height(deps.storage, &denom, proposal.height)?.unwrap();
-
-                
-                let total_locked: u128 = supply.token;
-                let total_rebase_amount: u128 = proposal.rebase_distributed;
-                let vtokens = match VTOKENS.may_load_at_height(
-                    deps.storage,
-                    (address.clone(), &denom),
-                    proposal.height,
-                )? {
-                    Some(val) => val,
-                    None => vec![],
-                };
-                if vtokens.is_empty() {
-                    continue;
-                }
-                let mut locked_t1: u128 = 0;
-                let mut locked_t2: u128 = 0;
-
-                for vtoken in vtokens {
-                    match vtoken.period {
-                        LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
-                        LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
-                    }
-                }
-                let sum = locked_t1 + locked_t2;
-                let rebase_amount_param = (Uint128::from(total_rebase_amount)
-                    .checked_mul(Uint128::from(sum))?)
-                .checked_div(Uint128::from(total_locked))?;
-                let rebase_response = RebaseAllResponse {
-                    proposal_id: proposal_id_param,
-                    rebase: rebase_amount_param,
-                    claimed: has_rebased,
-                };
-                response.push(rebase_response);
             }
-        
+            let mut locked_t1: u128 = 0;
+            let mut locked_t2: u128 = 0;
+
+            for vtoken in vtokens {
+                match vtoken.period {
+                    LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
+                    LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
+                }
+            }
+            let sum = locked_t1 + locked_t2;
+            let rebase_amount_param = (Uint128::from(total_rebase_amount)
+                .checked_mul(Uint128::from(sum))?)
+            .checked_div(Uint128::from(total_locked))?;
+            let rebase_response = RebaseAllResponse {
+                proposal_id: proposal_id_param,
+                rebase: rebase_amount_param,
+                claimed: has_rebased,
+            };
+            response.push(rebase_response);
+        }
     }
 
     Ok(response)

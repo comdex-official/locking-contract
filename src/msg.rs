@@ -82,6 +82,11 @@ pub enum ExecuteMsg {
         cswap_app_id: u64,
         excluded_fee_pair: Vec<u64>,
     },
+    DelegatedProtocolFeeClaim {
+        delegated_address: Addr,
+        proposal_id: u64,
+        app_id: u64,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
@@ -194,7 +199,7 @@ pub enum QueryMsg {
         address: Addr,
         proposal_id: u64,
         denom: String,
-    }
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]

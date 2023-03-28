@@ -22,7 +22,7 @@ use comdex_bindings::{ComdexMessages, ComdexQuery};
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Addr, Api, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, StdError, StdResult, Storage, Uint128, WasmQuery
+    Response, StdError, StdResult, Storage, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
 use std::ops::{Div, Mul};
@@ -247,6 +247,84 @@ pub fn execute(
             val: "Invalid message".to_string(),
         }),
     }
+}
+
+pub fn delegated_protocol_fee_claim(
+    deps: DepsMut<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    delegated_address: Addr,
+    app_id: u64,
+    proposal_id: u64,
+) -> Result<Response<ComdexMessages>, ContractError> {
+    let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+
+    let delegation_info = DELEGATION_INFO.may_load_at_height(
+        deps.storage,
+        delegated_address.clone(),
+        proposal.height,
+    )?;
+
+    if delegation_info.is_none() {
+        return Err(ContractError::CustomError {
+            val: "Delegation info not found".to_string(),
+        });
+    }
+
+    let delegation_info = delegation_info.unwrap();
+    if info.sender != delegated_address {
+        return Err(ContractError::CustomError {
+            val: "Sender is not a delegated address".to_string(),
+        });
+    }
+
+    let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
+        Some(val) => val,
+        None => vec![],
+    };
+
+    if !all_proposals.contains(&proposal_id) {
+        return Err(ContractError::CustomError {
+            val: "Proposal not completed".to_string(),
+        });
+    }
+
+    let voters_claimed = VOTERS_CLAIM
+        .load(deps.storage, (info.sender.clone(), proposal_id))
+        .unwrap_or_default();
+
+    if voters_claimed {
+        return Err(ContractError::CustomError {
+            val: "Voter already claimed".to_string(),
+        });
+    }
+
+    let mut _bribe_coin =
+        calculate_bribe_reward_proposal(deps.as_ref(), env, info.clone(), proposal_id)?;
+
+    let mut claimed_proposal =
+        match VOTERS_CLAIMED_PROPOSALS.may_load(deps.storage, info.sender.clone())? {
+            Some(val) => val,
+            None => vec![],
+        };
+
+    claimed_proposal.push(proposal_id);
+    claimed_proposal.sort();
+    _bribe_coin.sort_by_key(|element| element.denom.clone());
+
+    for coin in _bribe_coin.iter_mut() {
+        coin.amount = coin.amount * delegation_info.protocol_fees;
+    }
+    VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
+    VOTERS_CLAIM.save(deps.storage, (info.sender.clone(), proposal_id), &true)?;
+
+    Ok(Response::new()
+        .add_message(BankMsg::Send {
+            to_address: delegation_info.fee_collector_address.to_string(),
+            amount: _bribe_coin,
+        })
+        .add_attribute("action", "Withdraw protocol fees ")
+        .add_attribute("from", info.sender))
 }
 
 //// delegation function/////
@@ -1704,11 +1782,11 @@ fn has_duplicate_elements(vec: &Vec<u64>) -> bool {
     let mut seen_elements = std::collections::HashSet::new();
     for element in vec.iter() {
         if seen_elements.contains(element) {
-        return true;
+            return true;
         }
         seen_elements.insert(element);
     }
-    return false
+    return false;
 }
 pub fn vote_proposal(
     deps: DepsMut<ComdexQuery>,
@@ -1774,7 +1852,6 @@ pub fn vote_proposal(
         });
     }
 
-
     //// check if already voted for proposal
     let has_voted = VOTERS_VOTE
         .may_load(deps.storage, (info.sender.clone(), proposal_id))?
@@ -1797,8 +1874,9 @@ pub fn vote_proposal(
 
     // check if extended pair has no duplicate
 
-
     //balance of owner for the for denom for voting
+
+    let mut vote_power: u128 = 0;
 
     let vtokens = VTOKENS.may_load_at_height(
         deps.storage,
@@ -1806,28 +1884,23 @@ pub fn vote_proposal(
         proposal.height,
     )?;
 
-    if vtokens.is_none() {
-        return Err(ContractError::CustomError {
-            val: "No tokens locked to perform voting on proposals".to_string(),
-        });
-    }
-
-    let vtokens = vtokens.unwrap();
-
-    // calculate voting power for the the proposal
-    let mut vote_power: u128 = 0;
-
-    for vtoken in vtokens {
-        vote_power += vtoken.vtoken.amount.u128();
-    }
-
-    //// if a delegated_address is voting
     let delegator_locked =
         DELEGATION_STATS.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
 
-    if let Some(..) = delegator_locked {
-        let delegator_locked = delegator_locked.unwrap().total_delegated;
-        vote_power += delegator_locked;
+    if vtokens.is_none() {
+        if delegator_locked.is_some() {
+            vote_power = delegator_locked.unwrap().total_delegated;
+        }
+        return Err(ContractError::CustomError {
+            val: "No tokens locked to perform voting on proposals".to_string(),
+        });
+    } else {
+        let _vtokens = vtokens.unwrap();
+        // calculate voting power for the the proposal
+
+        for vtoken in _vtokens {
+            vote_power += vtoken.vtoken.amount.u128();
+        }
     }
 
     //// decrease voting power if delegated
