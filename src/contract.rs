@@ -196,6 +196,13 @@ pub fn execute(
                     val: "Wrong Deposit token".to_string(),
                 });
             }
+            let delegation_info = DELEGATION_INFO.may_load(deps.storage, info.sender.clone())?;
+            if delegation_info.is_some() {
+                return Err(ContractError::CustomError {
+                    val: "The delegated address cannot create a lock".to_string(),
+                });
+            }
+
             handle_lock_nft(deps, env, info, app_id, locking_period, recipient)
         }
         ExecuteMsg::Withdraw { denom } => handle_withdraw(deps, env, info, denom),
@@ -1059,6 +1066,14 @@ pub fn claim_rewards(
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
     }
+
+    let delegation_info = DELEGATION_INFO.may_load(deps.storage, info.sender.clone())?;
+    if delegation_info.is_some() {
+        return Err(ContractError::CustomError {
+            val: String::from("Delegated address cannot claim"),
+        });
+    }
+
     let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,
         None => vec![],
@@ -1067,7 +1082,7 @@ pub fn claim_rewards(
     if let Some(..) = proposal_id {
         if !all_proposals.contains(&proposal_id.unwrap()) {
             return Err(ContractError::CustomError {
-                val: String::from("proposal not completed"),
+                val: String::from("Proposal not completed"),
             });
         }
 
