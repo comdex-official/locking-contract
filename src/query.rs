@@ -1,16 +1,16 @@
 use std::borrow::Borrow;
 
 use crate::error::ContractError;
-use crate::helpers::get_token_supply;
+use crate::helpers::{get_token_supply};
 use crate::msg::{IssuedNftResponse, QueryMsg, RebaseResponse, WithdrawableResponse};
 use crate::state::{
     Delegation, DelegationInfo, DelegationStats, Emission, EmissionVaultPool, LockingPeriod,
     Proposal, State, TokenSupply, UserDelegationInfo, Vote, VoteResponse, Vtoken,RebaseAllResponse,RewardAllResponse ,ADMIN,
     APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO,
-    DELEGATION_STATS, EMISSION, EMISSION_REWARD, MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE,
+    DELEGATION_STATS, EMISSION, EMISSION_REWARD, PROPOSAL, PROPOSALVOTE,
     REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,VOTERS_CLAIM
 };
-use comdex_bindings::ComdexQuery;
+use comdex_bindings::{ComdexQuery,GetPoolByAppResponse};
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Decimal, Deps, Env, QueryRequest, StdError,
     StdResult, Uint128, WasmQuery,
@@ -135,9 +135,21 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             proposal_id,
             denom,
         )?),
-
         _ => panic!("Not implemented"),
     }
+}
+
+pub fn query_pool_by_app(
+    deps: Deps<ComdexQuery>,
+    app_mapping_id_param: u64,
+) -> StdResult<Vec<u64>> {
+    let pool_pair = deps
+        .querier
+        .query::<GetPoolByAppResponse>(&QueryRequest::Custom(ComdexQuery::GetPoolByApp {
+            app_id: app_mapping_id_param,
+        }))?;
+
+    Ok(pool_pair.pools)
 }
 
 pub fn query_admin(deps: Deps<ComdexQuery>, _env: Env) -> StdResult<Option<Addr>> {
@@ -475,10 +487,6 @@ pub fn calculate_bribe_reward_query(
             claimed:claimed
         };
         resp.push(response);
-
-
-
-
     }
 
     //// send bank message to band

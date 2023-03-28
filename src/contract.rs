@@ -22,7 +22,7 @@ use comdex_bindings::{ComdexMessages, ComdexQuery};
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Addr, Api, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, StdError, StdResult, Storage, Uint128, WasmQuery,
+    Response, StdError, StdResult, Storage, Uint128, WasmQuery
 };
 use cw2::set_contract_version;
 use std::ops::{Div, Mul};
@@ -1680,6 +1680,16 @@ pub fn update_protocol_fees(
         .add_attribute("from", info.sender))
 }
 
+fn has_duplicate_elements(vec: &Vec<u64>) -> bool {
+    let mut seen_elements = std::collections::HashSet::new();
+    for element in vec.iter() {
+        if seen_elements.contains(element) {
+        return true;
+        }
+        seen_elements.insert(element);
+    }
+    return false
+}
 pub fn vote_proposal(
     deps: DepsMut<ComdexQuery>,
     env: Env,
@@ -1731,12 +1741,19 @@ pub fn vote_proposal(
         });
     }
 
+    if has_duplicate_elements(&extended_pair) {
+        return Err(ContractError::CustomError {
+            val: "Extended pair has duplicate elements".to_string(),
+        });
+    }
+
     // check if total ratio is not 0%
     if total_ration == Decimal::zero() {
         return Err(ContractError::CustomError {
             val: "voted ratio cannot be zero".to_string(),
         });
     }
+
 
     //// check if already voted for proposal
     let has_voted = VOTERS_VOTE
@@ -1757,6 +1774,9 @@ pub fn vote_proposal(
             val: "Extended pair does not exist in proposal".to_string(),
         });
     }
+
+    // check if extended pair has no duplicate
+
 
     //balance of owner for the for denom for voting
 
