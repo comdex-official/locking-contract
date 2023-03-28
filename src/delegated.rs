@@ -1,8 +1,10 @@
+use crate::contract::calculate_bribe_reward_proposal;
 use crate::error::ContractError;
 use crate::helpers::{query_app_exists, query_extended_pair_by_app, query_pool_by_app};
 use crate::state::{
-    BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, DELEGATED, DELEGATION_INFO, DELEGATION_STATS,
-    DELEGATOR_CLAIM, DELEGATOR_CLAIMED_PROPOSALS, PROPOSAL, PROPOSALVOTE, VOTERSPROPOSAL,
+    Delegation, DelegationStats, UserDelegationInfo, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS,
+    DELEGATED, DELEGATION_INFO, DELEGATION_STATS, DELEGATOR_CLAIM, DELEGATOR_CLAIMED_PROPOSALS,
+    PROPOSAL, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_CLAIMED_PROPOSALS, VTOKENS,
 };
 
 use comdex_bindings::{ComdexMessages, ComdexQuery};
@@ -11,6 +13,239 @@ use cosmwasm_std::{
     Addr, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, Response, Uint128,
 };
 use std::ops::{Div, Mul};
+
+//// delegation function/////
+
+pub fn delegate(
+    deps: DepsMut<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    delegation_address: Addr,
+    denom: String,
+    ratio: Decimal,
+) -> Result<Response<ComdexMessages>, ContractError> {
+    //// check if delegation_address exists////
+    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
+    if delegation_info.is_none() {
+        return Err(ContractError::CustomError {
+            val: "Delegation info not found".to_string(),
+        });
+    }
+
+    ///// check if sender is not delegated
+    if info.sender == delegation_address {
+        return Err(ContractError::CustomError {
+            val: "Sender is not allowed to self-delegated".to_string(),
+        });
+    }
+
+    ///// get voting power
+    // balance of owner for the for denom for voting
+
+    let vtokens = VTOKENS.may_load_at_height(
+        deps.storage,
+        (info.sender.clone(), &denom),
+        env.block.height,
+    )?;
+
+    if vtokens.is_none() {
+        return Err(ContractError::CustomError {
+            val: "No tokens locked to perform voting on proposals".to_string(),
+        });
+    }
+
+    let vtokens = vtokens.unwrap();
+    // calculate voting power for the proposal
+    let mut vote_power: u128 = 0;
+
+    for vtoken in vtokens {
+        vote_power += vtoken.vtoken.amount.u128();
+    }
+    let delegation_stats = DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
+    let total_delegated_amount = ratio.mul(Uint128::from(vote_power)).u128();
+    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
+    if delegation.is_none() {
+        //create new delegation
+        let mut delegation = UserDelegationInfo {
+            total_casted: total_delegated_amount,
+            delegations: vec![],
+        };
+        let mut delegations = delegation.delegations;
+        let delegation_new = Delegation {
+            delegated_to: delegation_address.clone(),
+            delegated_at: env.block.time,
+            delegation_end_at: env.block.time.plus_seconds(86400), ///////set as 1 day
+            delegated: total_delegated_amount,
+        };
+        delegations.push(delegation_new);
+        delegation.delegations = delegations;
+        DELEGATED.save(
+            deps.storage,
+            info.sender.clone(),
+            &delegation,
+            env.block.height,
+        )?;
+
+        if delegation_stats.is_none() {
+            let delegation_stats = DelegationStats {
+                total_delegated: total_delegated_amount,
+                total_delegators: 1,
+            };
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+        } else {
+            let mut delegation_stats = delegation_stats.unwrap();
+            delegation_stats.total_delegated += total_delegated_amount;
+            delegation_stats.total_delegators += 1;
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+        }
+    } else {
+        let mut delegation = delegation.unwrap();
+        let mut delegations = delegation.delegations;
+        let mut prev_delegation: u128 = 0;
+        let mut found = false;
+        for delegation_tmp in delegations.iter_mut() {
+            if delegation_address == delegation_tmp.delegated_to {
+                prev_delegation = delegation_tmp.delegated;
+                delegation_tmp.delegated = total_delegated_amount;
+                delegation_tmp.delegated_at = env.block.time;
+                delegation_tmp.delegation_end_at = env.block.time.plus_seconds(86400); ///////set as 1 day
+                found = true;
+                break;
+            } else {
+                continue;
+            }
+        }
+
+        if found {
+            let mut delegation_stats = delegation_stats.unwrap();
+            delegation_stats.total_delegated -= prev_delegation;
+            delegation_stats.total_delegated += total_delegated_amount;
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+
+            delegation.total_casted =
+                delegation.total_casted - prev_delegation + total_delegated_amount;
+            delegation.delegations = delegations;
+            DELEGATED.save(
+                deps.storage,
+                info.sender.clone(),
+                &delegation,
+                env.block.height,
+            )?;
+        } else {
+            let mut delegation_stats = delegation_stats.unwrap();
+            delegation_stats.total_delegated += total_delegated_amount;
+            delegation_stats.total_delegators += 1;
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+
+            let delegation_new = Delegation {
+                delegated_to: delegation_address.clone(),
+                delegated_at: env.block.time,
+                delegation_end_at: env.block.time.plus_seconds(86400), ///////set as 1 day
+                delegated: total_delegated_amount,
+            };
+            delegations.push(delegation_new);
+            delegation.delegations = delegations;
+            DELEGATED.save(
+                deps.storage,
+                info.sender.clone(),
+                &delegation,
+                env.block.height,
+            )?;
+        }
+    }
+
+    Ok(Response::new()
+        .add_attribute("action", "delegate")
+        .add_attribute("from", info.sender)
+        .add_attribute("delegated_address", delegation_address))
+}
+
+pub fn undelegate(
+    deps: DepsMut<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    delegation_address: Addr,
+) -> Result<Response<ComdexMessages>, ContractError> {
+    //// check if delegation_address exists////
+    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
+    if delegation_info.is_none() {
+        return Err(ContractError::CustomError {
+            val: "Delegation info not found".to_string(),
+        });
+    }
+
+    ////// check if delegation is present ///////
+    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
+    if delegation.is_none() {
+        return Err(ContractError::CustomError {
+            val: "No active delegation present to undelegate".to_string(),
+        });
+    }
+
+    //// check if UnDelegation time has reached
+    let mut delegation_info = delegation.unwrap();
+    let mut delegations = delegation_info.delegations;
+
+    let delegations_len = delegations.len();
+
+    for i in 0..delegations_len {
+        if delegations[i].delegated_to == delegation_address {
+            if delegations[i].delegation_end_at > env.block.time {
+                return Err(ContractError::CustomError {
+                    val: "Yet to reach UnDelegation time".to_string(),
+                });
+            }
+        } else {
+            // update delegation stats(reduce)
+            let delegation_stats =
+                DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
+            let mut delegation_stats = delegation_stats.unwrap();
+            delegation_stats.total_delegated -= delegations[i].delegated;
+            delegation_stats.total_delegators -= 1;
+            DELEGATION_STATS.save(
+                deps.storage,
+                delegation_address.clone(),
+                &delegation_stats,
+                env.block.height,
+            )?;
+
+            delegations.remove(i);
+            delegation_info.delegations = delegations;
+            DELEGATED.save(
+                deps.storage,
+                info.sender.clone(),
+                &delegation_info,
+                env.block.height,
+            )?;
+            break;
+        }
+    }
+
+    Ok(Response::new()
+        .add_attribute("action", "undelegate")
+        .add_attribute("from", info.sender)
+        .add_attribute("delegated_address", delegation_address))
+}
 
 /////
 pub fn claim_rewards_delegated(
@@ -328,4 +563,82 @@ pub fn update_excluded_fee_pair(
             "excluded_fee_pair",
             format!("{:?}", delegation_info.excluded_fee_pair),
         ))
+}
+
+pub fn delegated_protocol_fee_claim(
+    deps: DepsMut<ComdexQuery>,
+    env: Env,
+    info: MessageInfo,
+    delegated_address: Addr,
+    app_id: u64,
+    proposal_id: u64,
+) -> Result<Response<ComdexMessages>, ContractError> {
+    let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
+
+    let delegation_info = DELEGATION_INFO.may_load_at_height(
+        deps.storage,
+        delegated_address.clone(),
+        proposal.height,
+    )?;
+
+    if delegation_info.is_none() {
+        return Err(ContractError::CustomError {
+            val: "Delegation info not found".to_string(),
+        });
+    }
+
+    let delegation_info = delegation_info.unwrap();
+    if info.sender != delegated_address {
+        return Err(ContractError::CustomError {
+            val: "Sender is not a delegated address".to_string(),
+        });
+    }
+
+    let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
+        Some(val) => val,
+        None => vec![],
+    };
+
+    if !all_proposals.contains(&proposal_id) {
+        return Err(ContractError::CustomError {
+            val: "Proposal not completed".to_string(),
+        });
+    }
+
+    let voters_claimed = VOTERS_CLAIM
+        .load(deps.storage, (info.sender.clone(), proposal_id))
+        .unwrap_or_default();
+
+    if voters_claimed {
+        return Err(ContractError::CustomError {
+            val: "Voter already claimed".to_string(),
+        });
+    }
+
+    let mut _bribe_coin =
+        calculate_bribe_reward_proposal(deps.as_ref(), env, info.clone(), proposal_id)?;
+
+    let mut claimed_proposal =
+        match VOTERS_CLAIMED_PROPOSALS.may_load(deps.storage, info.sender.clone())? {
+            Some(val) => val,
+            None => vec![],
+        };
+
+    claimed_proposal.push(proposal_id);
+    claimed_proposal.sort();
+    _bribe_coin.sort_by_key(|element| element.denom.clone());
+
+    for coin in _bribe_coin.iter_mut() {
+        coin.amount = coin.amount * delegation_info.protocol_fees;
+    }
+    VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
+    VOTERS_CLAIM.save(deps.storage, (info.sender.clone(), proposal_id), &true)?;
+
+    Ok(Response::new()
+        .add_message(BankMsg::Send {
+            to_address: delegation_info.fee_collector_address.to_string(),
+            amount: _bribe_coin,
+        })
+        .add_attribute("action", "Withdraw protocol fees ")
+        .add_attribute("from", info.sender))
 }
