@@ -84,8 +84,8 @@ pub enum ExecuteMsg {
     },
     DelegatedProtocolFeeClaim {
         delegated_address: Addr,
-        proposal_id: u64,
         app_id: u64,
+        proposal_id: u64,
     },
 }
 

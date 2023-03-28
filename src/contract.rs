@@ -243,6 +243,10 @@ pub fn execute(
             cswap_app_id,
             excluded_fee_pair,
         ),
+        ExecuteMsg::DelegatedProtocolFeeClaim { delegated_address, app_id, proposal_id } => {
+            delegated_protocol_fee_claim(deps, env, info, delegated_address, app_id, proposal_id)
+        },
+
         _ => Err(ContractError::CustomError {
             val: "Invalid message".to_string(),
         }),
