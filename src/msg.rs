@@ -194,6 +194,7 @@ pub enum QueryMsg {
     },
     UserDelegationStats {
         delegator_address: Addr,
+        height: Option<u64>,
     },
     UserEmissionVoting {
         address: Addr,

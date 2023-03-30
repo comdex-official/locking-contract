@@ -120,9 +120,15 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::DelegationStats { delegated_address } => {
             to_binary(&query_delegated_stats(deps, env, delegated_address)?)
         }
-        QueryMsg::UserDelegationStats { delegator_address } => {
-            to_binary(&query_user_delegation_all(deps, env, delegator_address)?)
-        }
+        QueryMsg::UserDelegationStats {
+            delegator_address,
+            height,
+        } => to_binary(&query_user_delegation_all(
+            deps,
+            env,
+            delegator_address,
+            height,
+        )?),
         QueryMsg::UserEmissionVoting {
             address,
             proposal_id,
@@ -657,9 +663,16 @@ pub fn query_user_delegation_all(
     deps: Deps<ComdexQuery>,
     _env: Env,
     delegator_address: Addr,
+    height: Option<u64>,
 ) -> StdResult<Option<UserDelegationInfo>> {
-    let delegation_info = DELEGATED.may_load(deps.storage, delegator_address)?;
-    Ok(delegation_info)
+    if height.is_some() {
+        let delegation_info =
+            DELEGATED.may_load_at_height(deps.storage, delegator_address, height.unwrap())?;
+        return Ok(delegation_info);
+    } else {
+        let delegation_info = DELEGATED.may_load(deps.storage, delegator_address)?;
+        return Ok(delegation_info);
+    }
 }
 
 pub fn query_emission_voting_power(

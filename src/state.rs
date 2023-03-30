@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub const VOTEPOWER: SnapshotMap<(&Addr, String), Uint128> = SnapshotMap::new(
     "voters_key",
-    "voters_checkpoints",
-    "voters_changelogs",
+    "voters_power_checkpoints",
+    "voters_power_changelogs",
     Strategy::EveryBlock,
 );
 
@@ -255,21 +255,21 @@ pub const REBASE_CLAIMED: Map<(Addr, u64), bool> = Map::new("rebase_claimed");
 
 pub const DELEGATED: SnapshotMap<Addr, UserDelegationInfo> = SnapshotMap::new(
     "delegated",
-    "voters_checkpoints",
-    "voters_changelogs",
+    "delegated_checkpoints",
+    "delegated_changelogs",
     Strategy::EveryBlock,
 );
 
 pub const DELEGATION_INFO: SnapshotMap<Addr, DelegationInfo> = SnapshotMap::new(
     "delegation_info",
-    "voters_checkpoints",
-    "voters_changelogs",
+    "delegation_info_checkpoints",
+    "delegation_info_changelogs",
     Strategy::EveryBlock,
 );
 
 pub const DELEGATION_STATS: SnapshotMap<Addr, DelegationStats> = SnapshotMap::new(
     "delegation_stats",
-    "voters_checkpoints",
-    "voters_changelogs",
+    "delegation_stats_checkpoints",
+    "delegation_stats_changelogs",
     Strategy::EveryBlock,
 );
