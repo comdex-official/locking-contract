@@ -220,30 +220,30 @@ pub fn undelegate(
                 return Err(ContractError::CustomError {
                     val: "Yet to reach UnDelegation time".to_string(),
                 });
-            }
-        } else {
-            // update delegation stats(reduce)
-            let delegation_stats =
-                DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
-            let mut delegation_stats = delegation_stats.unwrap();
-            delegation_stats.total_delegated -= delegations[i].delegated;
-            delegation_stats.total_delegators -= 1;
-            DELEGATION_STATS.save(
-                deps.storage,
-                delegation_address.clone(),
-                &delegation_stats,
-                env.block.height,
-            )?;
+            } else {
+                // update delegation stats(reduce)
+                let delegation_stats =
+                    DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
+                let mut delegation_stats = delegation_stats.unwrap();
+                delegation_stats.total_delegated -= delegations[i].delegated;
+                delegation_stats.total_delegators -= 1;
+                DELEGATION_STATS.save(
+                    deps.storage,
+                    delegation_address.clone(),
+                    &delegation_stats,
+                    env.block.height,
+                )?;
 
-            delegations.remove(i);
-            delegation_info.delegations = delegations;
-            DELEGATED.save(
-                deps.storage,
-                info.sender.clone(),
-                &delegation_info,
-                env.block.height,
-            )?;
-            break;
+                delegations.swap_remove(i);
+                delegation_info.delegations = delegations;
+                DELEGATED.save(
+                    deps.storage,
+                    info.sender.clone(),
+                    &delegation_info,
+                    env.block.height,
+                )?;
+                break;
+            }
         }
     }
 
