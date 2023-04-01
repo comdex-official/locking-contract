@@ -2,7 +2,7 @@ use crate::contract::calculate_bribe_reward_proposal;
 use crate::error::ContractError;
 use crate::helpers::{query_app_exists, query_extended_pair_by_app, query_pool_by_app};
 use crate::state::{
-    Delegation, DelegationStats, UserDelegationInfo, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS,
+    Delegation, UserDelegationInfo, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS,
     DELEGATED, DELEGATION_INFO, DELEGATION_STATS, DELEGATOR_CLAIM, DELEGATOR_CLAIMED_PROPOSALS,
     PROPOSAL, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_CLAIMED_PROPOSALS, VTOKENS,
 };
