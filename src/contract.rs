@@ -11,8 +11,8 @@ use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
 use crate::state::{
     EmissionVaultPool, Proposal, Vote, VotePair, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
     COMPLETEDPROPOSALS, CSWAP_ID, DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION,
-    EMISSION_REWARD, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED,
-    VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_CLAIMED_PROPOSALS, VOTERS_VOTE,
+    EMISSION_REWARD, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL,
+    VOTERS_CLAIM, VOTERS_CLAIMED_PROPOSALS, VOTERS_VOTE,
 };
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
@@ -1567,8 +1567,7 @@ pub fn vote_proposal(
     }
 
     if let Some(delegator_locked) = delegator_locked {
-        // decrease voting power if delegated
-        vote_power -= delegator_locked.total_delegated;
+        vote_power = delegator_locked.total_delegated;
     }
 
     if vote_power == 0 {

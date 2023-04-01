@@ -2,7 +2,7 @@ use crate::contract::calculate_bribe_reward_proposal;
 use crate::error::ContractError;
 use crate::helpers::{query_app_exists, query_extended_pair_by_app, query_pool_by_app};
 use crate::state::{
-    Delegation, UserDelegationInfo, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS,
+    Delegation, DelegationStats, UserDelegationInfo, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS,
     DELEGATED, DELEGATION_INFO, DELEGATION_STATS, DELEGATOR_CLAIM, DELEGATOR_CLAIMED_PROPOSALS,
     PROPOSAL, PROPOSALVOTE, VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_CLAIMED_PROPOSALS, VTOKENS,
 };
@@ -61,9 +61,14 @@ pub fn delegate(
         .map(|vtoken| vtoken.vtoken.amount.u128())
         .sum();
 
-    let delegation_stats = DELEGATION_STATS
-        .may_load(deps.storage, delegation_address.clone())?
-        .unwrap();
+    let mut delegation_stats =
+        DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
+    if delegation_stats.is_none() {
+        delegation_stats = Some(DelegationStats {
+            total_delegated: 0,
+            total_delegators: 0,
+        })
+    }
     let total_delegated_amount = ratio.mul(Uint128::from(vote_power)).u128();
     let mut delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
     if delegation.is_none() {
@@ -87,7 +92,7 @@ pub fn delegate(
             delegated: total_delegated_amount,
         };
 
-        let mut delegation_stats = delegation_stats;
+        let mut delegation_stats = delegation_stats.unwrap();
         delegation_stats.total_delegated -= prev_delegation;
         delegation_stats.total_delegated += total_delegated_amount;
         DELEGATION_STATS.save(
@@ -108,7 +113,7 @@ pub fn delegate(
         };
         delegations.push(delegation_new);
 
-        let mut delegation_stats = delegation_stats;
+        let mut delegation_stats = delegation_stats.unwrap();
         delegation_stats.total_delegated += total_delegated_amount;
         delegation_stats.total_delegators += 1;
         DELEGATION_STATS.save(
@@ -117,6 +122,7 @@ pub fn delegate(
             &delegation_stats,
             env.block.height,
         )?;
+        delegation.total_casted += total_delegated_amount;
     }
 
     delegation.delegations = delegations;
@@ -172,11 +178,17 @@ pub fn undelegate(
     }
     delegation_stats.total_delegated -= delegations[delegation_index].delegated;
     delegation_stats.total_delegators -= 1;
+    delegation.total_casted -= delegations[delegation_index].delegated;
 
     delegations.swap_remove(delegation_index);
     delegation.delegations = delegations;
 
-    DELEGATED.save(deps.storage, info.sender.clone(), &delegation, env.block.height)?;
+    DELEGATED.save(
+        deps.storage,
+        info.sender.clone(),
+        &delegation,
+        env.block.height,
+    )?;
     DELEGATION_STATS.save(
         deps.storage,
         delegation_address.clone(),
@@ -237,11 +249,7 @@ pub fn claim_rewards_delegated(
         bribe_coins = user_coin;
         fee_coin = delegated_coin;
 
-        DELEGATOR_CLAIM.save(
-            deps.storage,
-            (info.sender.clone(), proposal_id),
-            &true,
-        )?;
+        DELEGATOR_CLAIM.save(deps.storage, (info.sender.clone(), proposal_id), &true)?;
         let mut claimed_proposal =
             match DELEGATOR_CLAIMED_PROPOSALS.may_load(deps.storage, info.sender.clone())? {
                 Some(val) => val,
@@ -342,60 +350,58 @@ pub fn calculate_bribe_reward_proposal_delegated(
     let delegation_info = DELEGATION_INFO
         .may_load_at_height(deps.storage, delegated_address.clone(), proposal.height)?
         .unwrap();
-    
+
     let mut bribe_coins: Vec<Coin> = vec![];
 
     let vote = VOTERSPROPOSAL.may_load(deps.storage, (delegated_address.clone(), proposal_id))?;
 
-if let Some(vote) = vote{
+    if let Some(vote) = vote {
         for pair in vote.votes {
             let total_vote_weight = PROPOSALVOTE
                 .load(deps.storage, (proposal_id, pair.extended_pair))?
                 .u128();
 
-            let total_bribe =  BRIBES_BY_PROPOSAL
-                .may_load(deps.storage, (proposal_id, pair.extended_pair))?.unwrap_or_else(|| vec![]);
+            let total_bribe = BRIBES_BY_PROPOSAL
+                .may_load(deps.storage, (proposal_id, pair.extended_pair))?
+                .unwrap_or_else(|| vec![]);
 
+            let claimable_bribe: Vec<Coin> = total_bribe
+                .iter()
+                .map(|coin| {
+                    let claimable_amount = if !delegation_info
+                        .excluded_fee_pair
+                        .contains(&pair.extended_pair)
+                    {
+                        (Decimal::new(Uint128::from(pair.vote_weight))
+                            .div(Decimal::new(Uint128::from(total_vote_weight)))
+                            .mul(Decimal::one() - delegation_info.protocol_fees))
+                        .mul(coin.amount)
+                    } else {
+                        (Decimal::new(Uint128::from(pair.vote_weight))
+                            .div(Decimal::new(Uint128::from(total_vote_weight))))
+                        .mul(coin.amount)
+                    };
+                    Coin {
+                        amount: claimable_amount,
+                        denom: coin.denom.clone(),
+                    }
+                })
+                .collect();
 
-        let claimable_bribe: Vec<Coin> = total_bribe
-        .iter()
-        .map(|coin| {
-            let claimable_amount = if !delegation_info
-                .excluded_fee_pair
-                .contains(&pair.extended_pair)
-            {
-                (Decimal::new(Uint128::from(pair.vote_weight))
-                    .div(Decimal::new(Uint128::from(total_vote_weight)))
-                    .mul(Decimal::one() - delegation_info.protocol_fees))
-                .mul(coin.amount)
-            } else {
-                (Decimal::new(Uint128::from(pair.vote_weight))
-                    .div(Decimal::new(Uint128::from(total_vote_weight))))
-                .mul(coin.amount)
-            };
-            Coin {
-                amount: claimable_amount,
-                denom: coin.denom.clone(),
-            }
-        })
-        .collect();
-
-        for bribe_deposited in claimable_bribe {
-            match bribe_coins
-                .iter_mut()
-                .find(|p| bribe_deposited.denom == p.denom)
-            {
-                Some(pivot) => {
-                    pivot.denom = bribe_deposited.denom;
-                    pivot.amount += bribe_deposited.amount;
+            for bribe_deposited in claimable_bribe {
+                match bribe_coins
+                    .iter_mut()
+                    .find(|p| bribe_deposited.denom == p.denom)
+                {
+                    Some(pivot) => {
+                        pivot.denom = bribe_deposited.denom;
+                        pivot.amount += bribe_deposited.amount;
+                    }
+                    None => {
+                        bribe_coins.push(bribe_deposited);
+                    }
                 }
-                None => {
-                    bribe_coins.push(bribe_deposited);
-                }
             }
-        }
-    
-
         }
     }
 
@@ -418,27 +424,27 @@ if let Some(vote) = vote{
         .may_load_at_height(deps.storage, delegated_address, proposal.height)?
         .unwrap();
 
-   let (user_coin, delegated_coin): (Vec<Coin>, Vec<Coin>) = total_bribe_coins
-    .into_iter()
-    .map(|coin| {
-        let amount = coin.amount;
-        let user_share = amount.mul(Decimal::from_ratio(
-            delegation.delegated,
-            delegation_stats.total_delegated,
-        ));
-        let delegated_fee = user_share.mul(delegation_info.delegator_fees);
-        let user_share = user_share - delegated_fee;
-        let user_share_coin = Coin {
-            amount: user_share,
-            denom: coin.denom.clone(),
-        };
-        let delegated_share_coin = Coin {
-            amount: delegated_fee,
-            denom: coin.denom,
-        };
-        (user_share_coin, delegated_share_coin)
-    })
-    .unzip();
+    let (user_coin, delegated_coin): (Vec<Coin>, Vec<Coin>) = total_bribe_coins
+        .into_iter()
+        .map(|coin| {
+            let amount = coin.amount;
+            let user_share = amount.mul(Decimal::from_ratio(
+                delegation.delegated,
+                delegation_stats.total_delegated,
+            ));
+            let delegated_fee = user_share.mul(delegation_info.delegator_fees);
+            let user_share = user_share - delegated_fee;
+            let user_share_coin = Coin {
+                amount: user_share,
+                denom: coin.denom.clone(),
+            };
+            let delegated_share_coin = Coin {
+                amount: delegated_fee,
+                denom: coin.denom,
+            };
+            (user_share_coin, delegated_share_coin)
+        })
+        .unzip();
 
     Ok((user_coin, delegated_coin))
 }
