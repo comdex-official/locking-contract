@@ -51,131 +51,81 @@ pub fn delegate(
         env.block.height,
     )?;
 
-    if vtokens.is_none() {
-        return Err(ContractError::CustomError {
-            val: "No tokens locked to perform voting on proposals".to_string(),
-        });
-    }
+    let vtokens = vtokens.ok_or_else(|| ContractError::CustomError {
+        val: "No tokens locked to perform voting on proposals".to_string(),
+    })?;
 
-    let vtokens = vtokens.unwrap();
     // calculate voting power for the proposal
-    let mut vote_power: u128 = 0;
+    let vote_power: u128 = vtokens
+        .iter()
+        .map(|vtoken| vtoken.vtoken.amount.u128())
+        .sum();
 
-    for vtoken in vtokens {
-        vote_power += vtoken.vtoken.amount.u128();
-    }
-    let delegation_stats = DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
+    let delegation_stats = DELEGATION_STATS
+        .may_load(deps.storage, delegation_address.clone())?
+        .unwrap();
     let total_delegated_amount = ratio.mul(Uint128::from(vote_power)).u128();
-    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
+    let mut delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
     if delegation.is_none() {
-        //create new delegation
-        let mut delegation = UserDelegationInfo {
-            total_casted: total_delegated_amount,
+        delegation = Some(UserDelegationInfo {
+            total_casted: 0,
             delegations: vec![],
-        };
-        let mut delegations = delegation.delegations;
-        let delegation_new = Delegation {
+        })
+    }
+    let mut delegation = delegation.unwrap();
+    let mut delegations = delegation.delegations;
+
+    if let Some(delegation_index) = delegations
+        .iter()
+        .position(|d| d.delegated_to == delegation_address)
+    {
+        let prev_delegation = delegations[delegation_index].delegated;
+        delegations[delegation_index] = Delegation {
             delegated_to: delegation_address.clone(),
             delegated_at: env.block.time,
-            delegation_end_at: env.block.time.plus_seconds(86400), ///////set as 1 day
+            delegation_end_at: env.block.time.plus_seconds(86400),
             delegated: total_delegated_amount,
         };
-        delegations.push(delegation_new);
-        delegation.delegations = delegations;
-        DELEGATED.save(
+
+        let mut delegation_stats = delegation_stats;
+        delegation_stats.total_delegated -= prev_delegation;
+        delegation_stats.total_delegated += total_delegated_amount;
+        DELEGATION_STATS.save(
             deps.storage,
-            info.sender.clone(),
-            &delegation,
+            delegation_address.clone(),
+            &delegation_stats,
             env.block.height,
         )?;
 
-        if delegation_stats.is_none() {
-            let delegation_stats = DelegationStats {
-                total_delegated: total_delegated_amount,
-                total_delegators: 1,
-            };
-            DELEGATION_STATS.save(
-                deps.storage,
-                delegation_address.clone(),
-                &delegation_stats,
-                env.block.height,
-            )?;
-        } else {
-            let mut delegation_stats = delegation_stats.unwrap();
-            delegation_stats.total_delegated += total_delegated_amount;
-            delegation_stats.total_delegators += 1;
-            DELEGATION_STATS.save(
-                deps.storage,
-                delegation_address.clone(),
-                &delegation_stats,
-                env.block.height,
-            )?;
-        }
+        delegation.total_casted =
+            delegation.total_casted - prev_delegation + total_delegated_amount;
     } else {
-        let mut delegation = delegation.unwrap();
-        let mut delegations = delegation.delegations;
-        let mut prev_delegation: u128 = 0;
-        let mut found = false;
-        for delegation_tmp in delegations.iter_mut() {
-            if delegation_address == delegation_tmp.delegated_to {
-                prev_delegation = delegation_tmp.delegated;
-                delegation_tmp.delegated = total_delegated_amount;
-                delegation_tmp.delegated_at = env.block.time;
-                delegation_tmp.delegation_end_at = env.block.time.plus_seconds(86400); ///////set as 1 day
-                found = true;
-                break;
-            } else {
-                continue;
-            }
-        }
+        let delegation_new = Delegation {
+            delegated_to: delegation_address.clone(),
+            delegated_at: env.block.time,
+            delegation_end_at: env.block.time.plus_seconds(86400),
+            delegated: total_delegated_amount,
+        };
+        delegations.push(delegation_new);
 
-        if found {
-            let mut delegation_stats = delegation_stats.unwrap();
-            delegation_stats.total_delegated -= prev_delegation;
-            delegation_stats.total_delegated += total_delegated_amount;
-            DELEGATION_STATS.save(
-                deps.storage,
-                delegation_address.clone(),
-                &delegation_stats,
-                env.block.height,
-            )?;
-
-            delegation.total_casted =
-                delegation.total_casted - prev_delegation + total_delegated_amount;
-            delegation.delegations = delegations;
-            DELEGATED.save(
-                deps.storage,
-                info.sender.clone(),
-                &delegation,
-                env.block.height,
-            )?;
-        } else {
-            let mut delegation_stats = delegation_stats.unwrap();
-            delegation_stats.total_delegated += total_delegated_amount;
-            delegation_stats.total_delegators += 1;
-            DELEGATION_STATS.save(
-                deps.storage,
-                delegation_address.clone(),
-                &delegation_stats,
-                env.block.height,
-            )?;
-
-            let delegation_new = Delegation {
-                delegated_to: delegation_address.clone(),
-                delegated_at: env.block.time,
-                delegation_end_at: env.block.time.plus_seconds(86400), ///////set as 1 day
-                delegated: total_delegated_amount,
-            };
-            delegations.push(delegation_new);
-            delegation.delegations = delegations;
-            DELEGATED.save(
-                deps.storage,
-                info.sender.clone(),
-                &delegation,
-                env.block.height,
-            )?;
-        }
+        let mut delegation_stats = delegation_stats;
+        delegation_stats.total_delegated += total_delegated_amount;
+        delegation_stats.total_delegators += 1;
+        DELEGATION_STATS.save(
+            deps.storage,
+            delegation_address.clone(),
+            &delegation_stats,
+            env.block.height,
+        )?;
     }
+
+    delegation.delegations = delegations;
+    DELEGATED.save(
+        deps.storage,
+        info.sender.clone(),
+        &delegation,
+        env.block.height,
+    )?;
 
     Ok(Response::new()
         .add_attribute("action", "delegate")
@@ -200,52 +150,39 @@ pub fn undelegate(
         });
     }
 
+    let mut delegation_stats = DELEGATION_STATS.load(deps.storage, delegation_address.clone())?;
+
     ////// check if delegation is present ///////
-    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
-    if delegation.is_none() {
+    let mut delegation = DELEGATED.load(deps.storage, info.sender.clone())?;
+
+    let mut delegations = delegation.delegations;
+    let delegation_index = delegations
+        .iter()
+        .position(|d| d.delegated_to == delegation_address);
+    if delegation_index.is_none() {
         return Err(ContractError::CustomError {
             val: "No active delegation present to undelegate".to_string(),
         });
     }
-
-    //// check if UnDelegation time has reached
-    let mut delegation_info = delegation.unwrap();
-    let mut delegations = delegation_info.delegations;
-
-    let delegations_len = delegations.len();
-
-    for i in 0..delegations_len {
-        if delegations[i].delegated_to == delegation_address {
-            if delegations[i].delegation_end_at > env.block.time {
-                return Err(ContractError::CustomError {
-                    val: "Yet to reach UnDelegation time".to_string(),
-                });
-            } else {
-                // update delegation stats(reduce)
-                let delegation_stats =
-                    DELEGATION_STATS.may_load(deps.storage, delegation_address.clone())?;
-                let mut delegation_stats = delegation_stats.unwrap();
-                delegation_stats.total_delegated -= delegations[i].delegated;
-                delegation_stats.total_delegators -= 1;
-                DELEGATION_STATS.save(
-                    deps.storage,
-                    delegation_address.clone(),
-                    &delegation_stats,
-                    env.block.height,
-                )?;
-
-                delegations.swap_remove(i);
-                delegation_info.delegations = delegations;
-                DELEGATED.save(
-                    deps.storage,
-                    info.sender.clone(),
-                    &delegation_info,
-                    env.block.height,
-                )?;
-                break;
-            }
-        }
+    let delegation_index = delegation_index.unwrap();
+    if delegations[delegation_index].delegation_end_at > env.block.time {
+        return Err(ContractError::CustomError {
+            val: "Yet to reach UnDelegation time".to_string(),
+        });
     }
+    delegation_stats.total_delegated -= delegations[delegation_index].delegated;
+    delegation_stats.total_delegators -= 1;
+
+    delegations.swap_remove(delegation_index);
+    delegation.delegations = delegations;
+
+    DELEGATED.save(deps.storage, info.sender.clone(), &delegation, env.block.height)?;
+    DELEGATION_STATS.save(
+        deps.storage,
+        delegation_address.clone(),
+        &delegation_stats,
+        env.block.height,
+    )?;
 
     Ok(Response::new()
         .add_attribute("action", "undelegate")
@@ -270,8 +207,6 @@ pub fn claim_rewards_delegated(
         });
     }
 
-    let mut fee_coin = vec![];
-
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
     }
@@ -280,12 +215,12 @@ pub fn claim_rewards_delegated(
         None => vec![],
     };
     let mut bribe_coins = vec![];
-
+    let mut fee_coin = vec![];
     let delegation_info = delegation_info.unwrap();
 
-    if let Some(..) = proposal_id {
+    if let Some(proposal_id) = proposal_id {
         let delegator_claimed = DELEGATOR_CLAIM
-            .load(deps.storage, (info.sender.clone(), proposal_id.unwrap()))
+            .load(deps.storage, (info.sender.clone(), proposal_id))
             .unwrap_or_default();
         if delegator_claimed {
             return Err(ContractError::CustomError {
@@ -296,7 +231,7 @@ pub fn claim_rewards_delegated(
             deps.as_ref(),
             env,
             info.clone(),
-            proposal_id.unwrap(),
+            proposal_id,
             delegated_address,
         )?;
         bribe_coins = user_coin;
@@ -304,7 +239,7 @@ pub fn claim_rewards_delegated(
 
         DELEGATOR_CLAIM.save(
             deps.storage,
-            (info.sender.clone(), proposal_id.unwrap()),
+            (info.sender.clone(), proposal_id),
             &true,
         )?;
         let mut claimed_proposal =
@@ -312,7 +247,7 @@ pub fn claim_rewards_delegated(
                 Some(val) => val,
                 None => vec![],
             };
-        claimed_proposal.push(proposal_id.unwrap());
+        claimed_proposal.push(proposal_id);
         claimed_proposal.sort();
         DELEGATOR_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
         bribe_coins.sort_by_key(|element| element.denom.clone());
@@ -396,7 +331,6 @@ pub fn calculate_bribe_reward_proposal_delegated(
     proposal_id: u64,
     delegated_address: Addr,
 ) -> Result<(Vec<Coin>, Vec<Coin>), ContractError> {
-    let mut bribe_coins: Vec<Coin> = vec![];
     let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?;
     if proposal.is_none() {
         return Err(ContractError::CustomError {
@@ -408,62 +342,63 @@ pub fn calculate_bribe_reward_proposal_delegated(
     let delegation_info = DELEGATION_INFO
         .may_load_at_height(deps.storage, delegated_address.clone(), proposal.height)?
         .unwrap();
+    
+    let mut bribe_coins: Vec<Coin> = vec![];
 
-    let _vote = VOTERSPROPOSAL.may_load(deps.storage, (delegated_address.clone(), proposal_id))?;
+    let vote = VOTERSPROPOSAL.may_load(deps.storage, (delegated_address.clone(), proposal_id))?;
 
-    if let Some(..) = _vote {
-        let vote = _vote.unwrap();
+if let Some(vote) = vote{
         for pair in vote.votes {
             let total_vote_weight = PROPOSALVOTE
                 .load(deps.storage, (proposal_id, pair.extended_pair))?
                 .u128();
 
-            let total_bribe = match BRIBES_BY_PROPOSAL
-                .may_load(deps.storage, (proposal_id, pair.extended_pair))?
+            let total_bribe =  BRIBES_BY_PROPOSAL
+                .may_load(deps.storage, (proposal_id, pair.extended_pair))?.unwrap_or_else(|| vec![]);
+
+
+        let claimable_bribe: Vec<Coin> = total_bribe
+        .iter()
+        .map(|coin| {
+            let claimable_amount = if !delegation_info
+                .excluded_fee_pair
+                .contains(&pair.extended_pair)
             {
-                Some(val) => val,
-                None => vec![],
+                (Decimal::new(Uint128::from(pair.vote_weight))
+                    .div(Decimal::new(Uint128::from(total_vote_weight)))
+                    .mul(Decimal::one() - delegation_info.protocol_fees))
+                .mul(coin.amount)
+            } else {
+                (Decimal::new(Uint128::from(pair.vote_weight))
+                    .div(Decimal::new(Uint128::from(total_vote_weight))))
+                .mul(coin.amount)
             };
-
-            let mut claimable_bribe: Vec<Coin> = vec![];
-            for coin in total_bribe.clone() {
-                let mut _claimable_amount: Uint128 = Uint128::zero();
-                if delegation_info
-                    .excluded_fee_pair
-                    .contains(&pair.extended_pair)
-                {
-                    _claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
-                        .div(Decimal::new(Uint128::from(total_vote_weight)))
-                        .mul(Decimal::one() - delegation_info.protocol_fees))
-                    .mul(coin.amount);
-                } else {
-                    _claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
-                        .div(Decimal::new(Uint128::from(total_vote_weight))))
-                    .mul(coin.amount);
-                }
-                let claimable_coin = Coin {
-                    amount: _claimable_amount,
-                    denom: coin.denom,
-                };
-                claimable_bribe.push(claimable_coin);
+            Coin {
+                amount: claimable_amount,
+                denom: coin.denom.clone(),
             }
+        })
+        .collect();
 
-            for bribe_deposited in claimable_bribe.clone() {
-                match bribe_coins
-                    .iter_mut()
-                    .find(|p| bribe_deposited.denom == p.denom)
-                {
-                    Some(pivot) => {
-                        pivot.denom = bribe_deposited.denom;
-                        pivot.amount += bribe_deposited.amount;
-                    }
-                    None => {
-                        bribe_coins.push(bribe_deposited);
-                    }
+        for bribe_deposited in claimable_bribe {
+            match bribe_coins
+                .iter_mut()
+                .find(|p| bribe_deposited.denom == p.denom)
+            {
+                Some(pivot) => {
+                    pivot.denom = bribe_deposited.denom;
+                    pivot.amount += bribe_deposited.amount;
+                }
+                None => {
+                    bribe_coins.push(bribe_deposited);
                 }
             }
         }
+    
+
+        }
     }
+
     let total_bribe_coins = bribe_coins.clone();
     let delegation_user =
         DELEGATED.may_load_at_height(deps.storage, info.sender, proposal.height)?;
@@ -483,17 +418,16 @@ pub fn calculate_bribe_reward_proposal_delegated(
         .may_load_at_height(deps.storage, delegated_address, proposal.height)?
         .unwrap();
 
-    let mut user_coin: Vec<Coin> = vec![];
-    let mut delegated_coin: Vec<Coin> = vec![];
-
-    for coin in total_bribe_coins {
+   let (user_coin, delegated_coin): (Vec<Coin>, Vec<Coin>) = total_bribe_coins
+    .into_iter()
+    .map(|coin| {
         let amount = coin.amount;
-        let mut user_share = amount.mul(Decimal::from_ratio(
+        let user_share = amount.mul(Decimal::from_ratio(
             delegation.delegated,
             delegation_stats.total_delegated,
         ));
         let delegated_fee = user_share.mul(delegation_info.delegator_fees);
-        user_share -= delegated_fee;
+        let user_share = user_share - delegated_fee;
         let user_share_coin = Coin {
             amount: user_share,
             denom: coin.denom.clone(),
@@ -502,9 +436,9 @@ pub fn calculate_bribe_reward_proposal_delegated(
             amount: delegated_fee,
             denom: coin.denom,
         };
-        user_coin.push(user_share_coin);
-        delegated_coin.push(delegated_share_coin);
-    }
+        (user_share_coin, delegated_share_coin)
+    })
+    .unzip();
 
     Ok((user_coin, delegated_coin))
 }
@@ -537,10 +471,10 @@ pub fn update_excluded_fee_pair(
         });
     }
     //check if app exist
-    let _ = query_app_exists(deps.as_ref(), harbor_app_id)?;
+    query_app_exists(deps.as_ref(), harbor_app_id)?;
 
     //check if app exist
-    let _ = query_app_exists(deps.as_ref(), cswap_app_id)?;
+    query_app_exists(deps.as_ref(), cswap_app_id)?;
 
     //get ext pairs vec from app
     let ext_pairs = query_extended_pair_by_app(deps.as_ref(), harbor_app_id)?;
@@ -551,14 +485,13 @@ pub fn update_excluded_fee_pair(
         *pool *= 1000000;
     }
 
-    for pair in excluded_fee_pair.clone() {
-        if delegation_info.excluded_fee_pair.contains(&pair)
-            || !ext_pairs.contains(&pair)
-            || !pools.contains(&pair)
+    for pair in &excluded_fee_pair {
+        if !delegation_info.excluded_fee_pair.contains(pair)
+            && ext_pairs.contains(pair)
+            && pools.contains(pair)
         {
-            continue;
+            delegation_info.excluded_fee_pair.push(*pair);
         }
-        delegation_info.excluded_fee_pair.push(pair);
     }
     DELEGATION_INFO.save(
         deps.storage,
@@ -585,6 +518,13 @@ pub fn delegated_protocol_fee_claim(
     if !info.funds.is_empty() {
         return Err(ContractError::FundsNotAllowed {});
     }
+
+    if info.sender != delegated_address {
+        return Err(ContractError::CustomError {
+            val: "Sender is not a delegated address".to_string(),
+        });
+    }
+
     let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
 
     let delegation_info = DELEGATION_INFO.may_load_at_height(
@@ -600,11 +540,6 @@ pub fn delegated_protocol_fee_claim(
     }
 
     let delegation_info = delegation_info.unwrap();
-    if info.sender != delegated_address {
-        return Err(ContractError::CustomError {
-            val: "Sender is not a delegated address".to_string(),
-        });
-    }
 
     let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,

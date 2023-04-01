@@ -775,7 +775,7 @@ pub fn bribe_proposal(
         return Err(ContractError::InsufficientFunds { funds: 0 });
     } else if info.funds.len() > 1 {
         return Err(ContractError::CustomError {
-            val: String::from("Multiple denominations are not supported as yet."),
+            val: String::from("Multiple denominations are not supported"),
         });
     }
 
@@ -806,25 +806,17 @@ pub fn bribe_proposal(
     }
 
     // UPDATE BRIBE FOR PROPOSAL (IF EXISTS THEN UPDATE ELSE APPEND)
-    let mut existing_bribes =
-        match BRIBES_BY_PROPOSAL.may_load(deps.storage, (proposal_id, extended_pair))? {
-            Some(record) => record,
-            None => vec![],
-        };
+    let mut existing_bribes = BRIBES_BY_PROPOSAL
+        .may_load(deps.storage, (proposal_id, extended_pair))?
+        .unwrap_or_default();
 
-    if !existing_bribes.is_empty() {
-        let mut found = false;
-        for coin1 in existing_bribes.iter_mut() {
-            if bribe_coin.denom == coin1.denom {
-                coin1.amount += bribe_coin.amount;
-                found = true;
-            }
-        }
-        if !found {
-            existing_bribes.push(bribe_coin);
-        }
+    if let Some(coin) = existing_bribes
+        .iter_mut()
+        .find(|c| c.denom == bribe_coin.denom)
+    {
+        coin.amount += bribe_coin.amount;
     } else {
-        existing_bribes = vec![bribe_coin];
+        existing_bribes.push(bribe_coin);
     }
 
     BRIBES_BY_PROPOSAL.save(deps.storage, (proposal_id, extended_pair), &existing_bribes)?;
@@ -853,16 +845,15 @@ pub fn claim_rewards(
         Some(val) => val,
         None => vec![],
     };
-    let mut _bribe_coin = vec![];
-    if let Some(..) = proposal_id {
-        if !all_proposals.contains(&proposal_id.unwrap()) {
+    if let Some(proposal_id) = proposal_id {
+        if !all_proposals.contains(&proposal_id) {
             return Err(ContractError::CustomError {
                 val: String::from("Proposal not completed"),
             });
         }
 
         let voters_claimed = VOTERS_CLAIM
-            .load(deps.storage, (info.sender.clone(), proposal_id.unwrap()))
+            .load(deps.storage, (info.sender.clone(), proposal_id))
             .unwrap_or_default();
 
         if voters_claimed {
@@ -871,53 +862,48 @@ pub fn claim_rewards(
             });
         }
 
-        _bribe_coin = calculate_bribe_reward_proposal(
-            deps.as_ref(),
-            env,
-            info.clone(),
-            proposal_id.unwrap(),
-        )?;
-        VOTERS_CLAIM.save(
-            deps.storage,
-            (info.sender.clone(), proposal_id.unwrap()),
-            &true,
-        )?;
+        let mut bribe_coin =
+            calculate_bribe_reward_proposal(deps.as_ref(), env, info.clone(), proposal_id)?;
+        VOTERS_CLAIM.save(deps.storage, (info.sender.clone(), proposal_id), &true)?;
         let mut claimed_proposal =
             match VOTERS_CLAIMED_PROPOSALS.may_load(deps.storage, info.sender.clone())? {
                 Some(val) => val,
                 None => vec![],
             };
-        claimed_proposal.push(proposal_id.unwrap());
+        claimed_proposal.push(proposal_id);
         claimed_proposal.sort();
         VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
-        _bribe_coin.sort_by_key(|element| element.denom.clone());
-    } else {
-        let (_bribe_coins, claimed_proposal) = calculate_bribe_reward(
-            deps.as_ref(),
-            env,
-            info.clone(),
-            all_proposals.clone(),
-            app_id,
-        )?;
+        bribe_coin.sort_by_key(|element| element.denom.clone());
 
-        _bribe_coin = _bribe_coins;
-        MAXPROPOSALCLAIMED.save(
-            deps.storage,
-            (app_id, info.sender.clone()),
-            all_proposals.last().unwrap(),
-        )?;
-        VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
-        _bribe_coin.sort_by_key(|element| element.denom.clone());
-        for proposal in claimed_proposal {
-            VOTERS_CLAIM.save(deps.storage, (info.sender.clone(), proposal), &true)?;
-        }
+        return Ok(Response::new()
+            .add_attribute("method", "External Incentive Claimed")
+            .add_message(BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: bribe_coin,
+            }));
     }
-    if !_bribe_coin.is_empty() {
+
+    let (mut bribe_coins, claimed_proposals) = calculate_bribe_reward(
+        deps.as_ref(),
+        env,
+        info.clone(),
+        all_proposals.clone(),
+        app_id,
+    )?;
+
+    VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposals)?;
+    for proposal in claimed_proposals {
+        VOTERS_CLAIM.save(deps.storage, (info.sender.clone(), proposal), &true)?;
+    }
+
+    if !bribe_coins.is_empty() {
+        bribe_coins.sort_by_key(|element| element.denom.clone());
+
         Ok(Response::new()
             .add_attribute("method", "External Incentive Claimed")
             .add_message(BankMsg::Send {
                 to_address: info.sender.to_string(),
-                amount: _bribe_coin,
+                amount: bribe_coins,
             }))
     } else {
         Err(ContractError::CustomError {
@@ -940,11 +926,7 @@ pub fn calculate_bribe_reward(
             None => vec![],
         };
     for proposalid in all_proposals {
-        let voters_claimed = VOTERS_CLAIM
-            .load(deps.storage, (info.sender.clone(), proposalid))
-            .unwrap_or_default();
-
-        if voters_claimed {
+        if claimed_proposal.contains(&proposalid) {
             continue;
         }
         let vote = match VOTERSPROPOSAL.may_load(deps.storage, (info.sender.clone(), proposalid))? {
@@ -964,30 +946,27 @@ pub fn calculate_bribe_reward(
                 None => vec![],
             };
 
-            let mut claimable_bribe: Vec<Coin> = vec![];
-            for coin in total_bribe.clone() {
-                let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
-                    .div(Decimal::new(Uint128::from(total_vote_weight))))
-                .mul(coin.amount);
-                let claimable_coin = Coin {
-                    amount: claimable_amount,
-                    denom: coin.denom,
-                };
-                claimable_bribe.push(claimable_coin);
-            }
+            let claimable_bribe: Vec<Coin> = total_bribe
+                .iter()
+                .map(|coin| {
+                    let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
+                        .div(Decimal::new(Uint128::from(total_vote_weight))))
+                    .mul(coin.amount);
+                    Coin {
+                        amount: claimable_amount,
+                        denom: coin.denom.clone(),
+                    }
+                })
+                .collect();
 
-            for bribe_deposited in claimable_bribe.clone() {
-                match bribe_coins
+            for bribe_deposited in claimable_bribe {
+                if let Some(pivot) = bribe_coins
                     .iter_mut()
                     .find(|p| bribe_deposited.denom == p.denom)
                 {
-                    Some(pivot) => {
-                        pivot.denom = bribe_deposited.denom;
-                        pivot.amount += bribe_deposited.amount;
-                    }
-                    None => {
-                        bribe_coins.push(bribe_deposited);
-                    }
+                    pivot.amount += bribe_deposited.amount;
+                } else {
+                    bribe_coins.push(bribe_deposited);
                 }
             }
         }
@@ -1008,47 +987,38 @@ pub fn calculate_bribe_reward_proposal(
 ) -> Result<Vec<Coin>, ContractError> {
     let mut bribe_coins: Vec<Coin> = vec![];
 
-    let _vote = VOTERSPROPOSAL.may_load(deps.storage, (info.sender, proposal_id))?;
+    let vote = VOTERSPROPOSAL.load(deps.storage, (info.sender, proposal_id))?;
 
-    if let Some(..) = _vote {
-        let vote = _vote.unwrap();
-        for pair in vote.votes {
-            let total_vote_weight = PROPOSALVOTE
-                .load(deps.storage, (proposal_id, pair.extended_pair))?
-                .u128();
+    for pair in vote.votes {
+        let total_vote_weight = PROPOSALVOTE
+            .load(deps.storage, (proposal_id, pair.extended_pair))?
+            .u128();
 
-            let total_bribe = match BRIBES_BY_PROPOSAL
-                .may_load(deps.storage, (proposal_id, pair.extended_pair))?
-            {
-                Some(val) => val,
-                None => vec![],
-            };
+        let total_bribe = BRIBES_BY_PROPOSAL
+            .may_load(deps.storage, (proposal_id, pair.extended_pair))?
+            .unwrap_or_default();
 
-            let mut claimable_bribe: Vec<Coin> = vec![];
-            for coin in total_bribe.clone() {
+        let claimable_bribe: Vec<Coin> = total_bribe
+            .iter()
+            .map(|coin| {
                 let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
                     .div(Decimal::new(Uint128::from(total_vote_weight))))
                 .mul(coin.amount);
-                let claimable_coin = Coin {
+                Coin {
                     amount: claimable_amount,
-                    denom: coin.denom,
-                };
-                claimable_bribe.push(claimable_coin);
-            }
-
-            for bribe_deposited in claimable_bribe.clone() {
-                match bribe_coins
-                    .iter_mut()
-                    .find(|p| bribe_deposited.denom == p.denom)
-                {
-                    Some(pivot) => {
-                        pivot.denom = bribe_deposited.denom;
-                        pivot.amount += bribe_deposited.amount;
-                    }
-                    None => {
-                        bribe_coins.push(bribe_deposited);
-                    }
+                    denom: coin.denom.clone(),
                 }
+            })
+            .collect();
+
+        for bribe_deposited in claimable_bribe {
+            if let Some(pivot) = bribe_coins
+                .iter_mut()
+                .find(|p| bribe_deposited.denom == p.denom)
+            {
+                pivot.amount += bribe_deposited.amount;
+            } else {
+                bribe_coins.push(bribe_deposited);
             }
         }
     }
@@ -1571,7 +1541,7 @@ pub fn vote_proposal(
 
     // check if extended pair has no duplicate
 
-    //balance of owner for the for denom for voting
+    //balance of  denom for voting
 
     let mut vote_power: u128 = 0;
 
@@ -1584,21 +1554,27 @@ pub fn vote_proposal(
     let delegator_locked =
         DELEGATION_STATS.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
 
-    if vtokens.is_none() {
-        if delegator_locked.is_some() {
-            vote_power = delegator_locked.unwrap().total_delegated;
-        } else {
-            return Err(ContractError::CustomError {
-                val: "No tokens locked to perform voting on proposals".to_string(),
-            });
-        }
-    } else {
-        let _vtokens = vtokens.unwrap();
-        // calculate voting power for the the proposal
-
+    if vtokens.is_none() && delegator_locked.is_none() {
+        return Err(ContractError::CustomError {
+            val: "No tokens locked to perform voting on proposals".to_string(),
+        });
+    }
+    if let Some(_vtokens) = vtokens {
+        // calculate voting power for the proposal
         for vtoken in _vtokens {
             vote_power += vtoken.vtoken.amount.u128();
         }
+    }
+
+    if let Some(delegator_locked) = delegator_locked {
+        // decrease voting power if delegated
+        vote_power -= delegator_locked.total_delegated;
+    }
+
+    if vote_power == 0 {
+        return Err(ContractError::CustomError {
+            val: "No tokens locked to perform voting on proposals".to_string(),
+        });
     }
 
     //// decrease voting power if delegated
@@ -1683,7 +1659,9 @@ pub fn raise_proposal(
         });
     }
     //check no proposal active for app
-    let current_app_proposal = (APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?).unwrap_or(0);
+    let current_app_proposal = APPCURRENTPROPOSAL
+        .may_load(deps.storage, app_id)?
+        .unwrap_or(0);
 
     // if proposal already exist , check if whether it is in voting period
     // proposal cannot be raised until current proposal voting time is ended
