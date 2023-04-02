@@ -71,7 +71,7 @@ pub enum ExecuteMsg {
         delegate_address: Addr,
         fees: Decimal,
     },
-    ClaimRewardsDelegate {
+    ClaimRewardsDelegated {
         delegated_address: Addr,
         proposal_id: Option<u64>,
         app_id: u64,
@@ -191,6 +191,7 @@ pub enum QueryMsg {
     },
     DelegationStats {
         delegated_address: Addr,
+        height: Option<u64>,
     },
     UserDelegationStats {
         delegator_address: Addr,

@@ -226,7 +226,7 @@ pub fn execute(
             delegate_address,
             fees,
         } => update_protocol_fees(deps, env, info, delegate_address, fees),
-        ExecuteMsg::ClaimRewardsDelegate {
+        ExecuteMsg::ClaimRewardsDelegated {
             delegated_address,
             proposal_id,
             app_id,
