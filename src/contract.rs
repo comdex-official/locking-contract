@@ -899,6 +899,9 @@ pub fn claim_rewards(
     if !bribe_coins.is_empty() {
         bribe_coins.sort_by_key(|element| element.denom.clone());
 
+        // remove all coin having amount as 0
+        bribe_coins.retain(|coin| !coin.amount.is_zero());
+        
         Ok(Response::new()
             .add_attribute("method", "External Incentive Claimed")
             .add_message(BankMsg::Send {
