@@ -446,48 +446,54 @@ pub fn calculate_bribe_reward_query(
             .may_load(deps.storage, (address.clone(), proposalid))?
             .unwrap_or_default();
         let vote = match VOTERSPROPOSAL.may_load(deps.storage, (address.to_owned(), proposalid))? {
-            Some(val) => val,
-            None => continue,
+            Some(val) => Some(val),
+            None => None,
         };
-        for pair in vote.votes {
-            let total_vote_weight = PROPOSALVOTE
-                .load(deps.storage, (proposalid, pair.extended_pair))?
-                .u128();
 
-            let total_bribe = match BRIBES_BY_PROPOSAL
-                .may_load(deps.storage, (proposalid, pair.extended_pair))?
-            {
-                Some(val) => val,
-                None => vec![],
-            };
+        if vote.is_some() {
+            let vote = vote.unwrap();
 
-            let mut claimable_bribe: Vec<Coin> = vec![];
-            for coin in total_bribe.clone() {
-                let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
-                    .div(Decimal::new(Uint128::from(total_vote_weight))))
-                .mul(coin.amount);
-                let claimable_coin = Coin {
-                    amount: claimable_amount,
-                    denom: coin.denom,
-                };
-                claimable_bribe.push(claimable_coin);
-            }
+            for pair in vote.votes {
+                let total_vote_weight = PROPOSALVOTE
+                    .load(deps.storage, (proposalid, pair.extended_pair))?
+                    .u128();
 
-            for bribe_deposited in claimable_bribe.clone() {
-                match bribe_coins
-                    .iter_mut()
-                    .find(|p| bribe_deposited.denom == p.denom)
+                let total_bribe = match BRIBES_BY_PROPOSAL
+                    .may_load(deps.storage, (proposalid, pair.extended_pair))?
                 {
-                    Some(pivot) => {
-                        pivot.denom = bribe_deposited.denom;
-                        pivot.amount += bribe_deposited.amount;
-                    }
-                    None => {
-                        bribe_coins.push(bribe_deposited);
+                    Some(val) => val,
+                    None => vec![],
+                };
+
+                let mut claimable_bribe: Vec<Coin> = vec![];
+                for coin in total_bribe.clone() {
+                    let claimable_amount = (Decimal::new(Uint128::from(pair.vote_weight))
+                        .div(Decimal::new(Uint128::from(total_vote_weight))))
+                    .mul(coin.amount);
+                    let claimable_coin = Coin {
+                        amount: claimable_amount,
+                        denom: coin.denom,
+                    };
+                    claimable_bribe.push(claimable_coin);
+                }
+
+                for bribe_deposited in claimable_bribe.clone() {
+                    match bribe_coins
+                        .iter_mut()
+                        .find(|p| bribe_deposited.denom == p.denom)
+                    {
+                        Some(pivot) => {
+                            pivot.denom = bribe_deposited.denom;
+                            pivot.amount += bribe_deposited.amount;
+                        }
+                        None => {
+                            bribe_coins.push(bribe_deposited);
+                        }
                     }
                 }
             }
         }
+        bribe_coins.retain(|coin| !coin.amount.is_zero());
         let response = RewardAllResponse {
             proposal_id: proposalid,
             total_incentive: bribe_coins,
@@ -535,22 +541,23 @@ pub fn query_rebase_eligible(
                 Some(val) => val,
                 None => vec![],
             };
-            if vtokens.is_empty() {
-                continue;
-            }
-            let mut locked_t1: u128 = 0;
-            let mut locked_t2: u128 = 0;
+            let rebase_amount_param = if vtokens.is_empty() {
+                Uint128::zero()
+            } else
+            {
+                let (locked_t1, locked_t2): (u128, u128) =
+                    vtokens
+                        .iter()
+                        .fold((0, 0), |(acc_t1, acc_t2), vtoken| match vtoken.period {
+                            LockingPeriod::T1 => (acc_t1 + vtoken.token.amount.u128(), acc_t2),
+                            LockingPeriod::T2 => (acc_t1, acc_t2 + vtoken.token.amount.u128()),
+                        });
+                let sum = locked_t1 + locked_t2;
+                (Uint128::from(total_rebase_amount)
+                    .checked_mul(Uint128::from(sum))?)
+                .checked_div(Uint128::from(total_locked))?
+            };
 
-            for vtoken in vtokens {
-                match vtoken.period {
-                    LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
-                    LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
-                }
-            }
-            let sum = locked_t1 + locked_t2;
-            let rebase_amount_param = (Uint128::from(total_rebase_amount)
-                .checked_mul(Uint128::from(sum))?)
-            .checked_div(Uint128::from(total_locked))?;
             let rebase_response = RebaseAllResponse {
                 proposal_id: proposal_id_param,
                 rebase: rebase_amount_param,

@@ -1,7 +1,3 @@
-use crate::delegated::{
-    claim_rewards_delegated, delegate, delegated_protocol_fee_claim, undelegate,
-    update_excluded_fee_pair,
-};
 use crate::error::ContractError;
 use crate::helpers::{
     get_token_supply, query_app_exists, query_extended_pair_by_app, query_get_asset_data,
@@ -214,43 +210,6 @@ pub fn execute(
         //     denom,
         // } => handle_transfer(deps, env, info, recipient, locking_period, denom),
         ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
-        ExecuteMsg::Delegate {
-            delegation_address,
-            denom,
-            ratio,
-        } => delegate(deps, env, info, delegation_address, denom, ratio),
-        ExecuteMsg::Undelegate { delegation_address } => {
-            undelegate(deps, env, info, delegation_address)
-        }
-        ExecuteMsg::UpdateProtocolFees {
-            delegate_address,
-            fees,
-        } => update_protocol_fees(deps, env, info, delegate_address, fees),
-        ExecuteMsg::ClaimRewardsDelegated {
-            delegated_address,
-            proposal_id,
-            app_id,
-        } => claim_rewards_delegated(deps, env, info, delegated_address, proposal_id, app_id),
-        ExecuteMsg::UpdateExcludedFeePair {
-            delegate_address,
-            harbor_app_id,
-            cswap_app_id,
-            excluded_fee_pair,
-        } => update_excluded_fee_pair(
-            deps,
-            env,
-            info,
-            delegate_address,
-            harbor_app_id,
-            cswap_app_id,
-            excluded_fee_pair,
-        ),
-        ExecuteMsg::DelegatedProtocolFeeClaim {
-            delegated_address,
-            app_id,
-            proposal_id,
-        } => delegated_protocol_fee_claim(deps, env, info, delegated_address, app_id, proposal_id),
-
         _ => Err(ContractError::CustomError {
             val: "Invalid message".to_string(),
         }),
@@ -901,7 +860,7 @@ pub fn claim_rewards(
 
         // remove all coin having amount as 0
         bribe_coins.retain(|coin| !coin.amount.is_zero());
-        
+
         Ok(Response::new()
             .add_attribute("method", "External Incentive Claimed")
             .add_message(BankMsg::Send {
@@ -1044,7 +1003,7 @@ pub fn calculate_rebase_reward(
         });
     }
     let has_rebased = REBASE_CLAIMED
-        .load(deps.storage, (info.sender.clone(), proposal_id))
+        .may_load(deps.storage, (info.sender.clone(), proposal_id))?
         .unwrap_or_default();
 
     if has_rebased {
@@ -1067,6 +1026,7 @@ pub fn calculate_rebase_reward(
         Some(val) => val,
         None => vec![],
     };
+
     if vtokens.is_empty() {
         return Err(ContractError::CustomError {
             val: "No locked tokens for users to claim rebase".to_string(),
@@ -1077,15 +1037,13 @@ pub fn calculate_rebase_reward(
         .unwrap();
     let total_locked: u128 = supply.token;
     //// get rebase amount per period
-    let mut locked_t1: u128 = 0;
-    let mut locked_t2: u128 = 0;
-
-    for vtoken in vtokens {
-        match vtoken.period {
-            LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
-            LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
-        }
-    }
+    let (locked_t1, locked_t2): (u128, u128) =
+        vtokens
+            .iter()
+            .fold((0, 0), |(acc_t1, acc_t2), vtoken| match vtoken.period {
+                LockingPeriod::T1 => (acc_t1 + vtoken.token.amount.u128(), acc_t2),
+                LockingPeriod::T2 => (acc_t1, acc_t2 + vtoken.token.amount.u128()),
+            });
 
     //// lock in t1
     let lock_amount_t1 = Uint128::from(locked_t1).mul(Decimal::from_ratio(
@@ -1093,7 +1051,7 @@ pub fn calculate_rebase_reward(
         Uint128::from(total_locked),
     ));
 
-    if lock_amount_t1 != Uint128::zero() {
+    if lock_amount_t1 > Uint128::zero() {
         let fund_t1 = Coin {
             amount: lock_amount_t1,
             denom: gov_token_denom.clone(),
@@ -1113,7 +1071,7 @@ pub fn calculate_rebase_reward(
         Uint128::from(total_locked),
     ));
 
-    if lock_amount_t2 != Uint128::zero() {
+    if lock_amount_t2 > Uint128::zero() {
         let fund_t2 = Coin {
             amount: lock_amount_t2,
             denom: gov_token_denom,
@@ -1134,6 +1092,7 @@ pub fn calculate_rebase_reward(
         });
     }
     REBASE_CLAIMED.save(deps.storage, (info.sender, proposal_id), &true)?;
+
     Ok(Response::new().add_attribute("method", "rebase all holders"))
 }
 
@@ -1237,6 +1196,7 @@ pub fn emission(
     }
 
     //// GET TOTAL V-TOKEN SUPPLY
+
     let vtokens = SUPPLY
         .may_load_at_height(deps.storage, &gov_token_denom, proposal.height)?
         .unwrap();
@@ -1284,7 +1244,7 @@ pub fn emission(
         let vote = PROPOSALVOTE
             .load(deps.storage, (proposal_id, i))
             .unwrap_or_else(|_| Uint128::from(0_u32));
-        if Uint128::from(i).div(Uint128::from(1000000_u64)) == Uint128::zero() {
+        if i < 1000000 {
             votes.push(vote);
             extd_pair.push(i);
         } else {
@@ -1316,23 +1276,27 @@ pub fn emission(
         .mul(Uint128::from(proposal.emission_distributed))
         .div(total_vote);
     let vault_share = Uint128::from(proposal.emission_distributed) - pools_share;
-    let mut pool_rewards: Vec<Uint128> = vec![];
-    let mut vault_rewards: Vec<Uint128> = vec![];
-    for votes in votes_pool.iter() {
-        if pool_votes.is_zero() {
-            break;
-        }
-        let reward = votes.mul(pools_share).div(pool_votes);
-        pool_rewards.push(reward);
-    }
+    let pool_rewards: Vec<Uint128> = votes_pool
+        .iter()
+        .map(|votes| {
+            if pool_votes.is_zero() {
+                Uint128::zero()
+            } else {
+                votes * pools_share / pool_votes
+            }
+        })
+        .collect();
 
-    for vote in votes.iter() {
-        if vault_votes.is_zero() {
-            break;
-        }
-        let reward = vote.mul(vault_share).div(vault_votes);
-        vault_rewards.push(reward);
-    }
+    let vault_rewards: Vec<Uint128> = votes
+        .iter()
+        .map(|vote| {
+            if vault_votes.is_zero() {
+                Uint128::zero()
+            } else {
+                vote * vault_share / vault_votes
+            }
+        })
+        .collect();
 
     let emission_reward = EmissionVaultPool {
         app_id: app_id,
@@ -1373,12 +1337,6 @@ pub fn emission(
         amount: Uint128::from(proposal.rebase_distributed),
         contract_addr: env.contract.address.to_string(),
     };
-    let surplus_msg = ComdexMessages::MsgGetSurplusFund {
-        app_id: app_id_param,
-        asset_id: state.surplus_asset_id,
-        contract_addr: env.contract.address.clone().into_string(),
-        amount: surplus.clone(),
-    };
 
     if total_vote != Uint128::zero() {
         if vault_votes.ne(&Uint128::zero()) {
@@ -1391,6 +1349,12 @@ pub fn emission(
     msg.push(rebase_msg);
 
     if surplus.amount != Uint128::new(0) {
+        let surplus_msg = ComdexMessages::MsgGetSurplusFund {
+            app_id: app_id_param,
+            asset_id: state.surplus_asset_id,
+            contract_addr: env.contract.address.clone().into_string(),
+            amount: surplus.clone(),
+        };
         msg.push(surplus_msg);
     }
 
@@ -1729,7 +1693,7 @@ pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, Co
 }
 
 #[entry_point]
-pub fn sudo(deps: DepsMut, env: Env, msg: SudoMsg) -> Result<Response, ContractError> {
+pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, ContractError> {
     match msg {
         SudoMsg::UpdateVestingContract { address } => {
             let mut state = STATE.load(deps.storage)?;
@@ -1787,89 +1751,8 @@ pub fn sudo(deps: DepsMut, env: Env, msg: SudoMsg) -> Result<Response, ContractE
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
-        SudoMsg::AddNewDelegation { delegation_info } => {
-            let delegation = DELEGATION_INFO
-                .may_load(deps.storage, delegation_info.delegated_address.clone())?;
-            //// see all checks in the delegation_info
-            if delegation.is_some() {
-                return Err(ContractError::CustomError {
-                    val: "Delegation already exists".to_string(),
-                });
-            }
-
-            if delegation_info.protocol_fees < Decimal::zero()
-                || delegation_info.protocol_fees > Decimal::one()
-            {
-                return Err(ContractError::CustomError {
-                    val: "Protocol fees percentage cannot be less than 0 % or greater than 100%"
-                        .to_string(),
-                });
-            }
-            if delegation_info.delegator_fees < Decimal::zero()
-                || delegation_info.delegator_fees > Decimal::one()
-            {
-                return Err(ContractError::CustomError {
-                    val: "Delegator fees percentage cannot be less than 0 % or greater than 100%"
-                        .to_string(),
-                });
-            }
-
-            if delegation_info.delegated_address == delegation_info.fee_collector_address {
-                return Err(ContractError::CustomError {
-                    val: "Delegator and fee collector address cannot be same".to_string(),
-                });
-            }
-
-            DELEGATION_INFO.save(
-                deps.storage,
-                delegation_info.delegated_address.clone(),
-                &delegation_info,
-                env.block.height,
-            )?;
-
-            Ok(Response::new())
-        }
-        SudoMsg::UpdateExistingDelegation { delegation_info } => {
-            let delegation = DELEGATION_INFO
-                .may_load(deps.storage, delegation_info.delegated_address.clone())?;
-            //// see all checks in the delegation_info
-            if delegation.is_none() {
-                return Err(ContractError::CustomError {
-                    val: "Delegation does not exists".to_string(),
-                });
-            }
-
-            if delegation_info.protocol_fees < Decimal::zero()
-                || delegation_info.protocol_fees > Decimal::one()
-            {
-                return Err(ContractError::CustomError {
-                    val: "Protocol fees percentage cannot be less than 0 % or greater than 100%"
-                        .to_string(),
-                });
-            }
-            if delegation_info.delegator_fees < Decimal::zero()
-                || delegation_info.delegator_fees > Decimal::one()
-            {
-                return Err(ContractError::CustomError {
-                    val: "Delegator fees percentage cannot be less than 0 % or greater than 100%"
-                        .to_string(),
-                });
-            }
-
-            if delegation_info.delegated_address == delegation_info.fee_collector_address {
-                return Err(ContractError::CustomError {
-                    val: "Delegator and fee collector address cannot be same".to_string(),
-                });
-            }
-
-            DELEGATION_INFO.save(
-                deps.storage,
-                delegation_info.delegated_address.clone(),
-                &delegation_info,
-                env.block.height,
-            )?;
-
-            Ok(Response::new())
-        }
+        _ => Err(ContractError::CustomError {
+            val: "Invalid message".to_string(),
+        }),
     }
 }
