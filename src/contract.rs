@@ -833,6 +833,7 @@ pub fn claim_rewards(
         claimed_proposal.sort();
         VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposal)?;
         bribe_coin.sort_by_key(|element| element.denom.clone());
+        bribe_coin.retain(|coin| !coin.amount.is_zero());
 
         return Ok(Response::new()
             .add_attribute("method", "External Incentive Claimed")
