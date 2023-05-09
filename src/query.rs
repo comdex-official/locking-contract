@@ -445,10 +445,7 @@ pub fn calculate_bribe_reward_query(
         let claimed = VOTERS_CLAIM
             .may_load(deps.storage, (address.clone(), proposalid))?
             .unwrap_or_default();
-        let vote = match VOTERSPROPOSAL.may_load(deps.storage, (address.to_owned(), proposalid))? {
-            Some(val) => Some(val),
-            None => None,
-        };
+        let vote = VOTERSPROPOSAL.may_load(deps.storage, (address.to_owned(), proposalid))?;
 
         if vote.is_some() {
             let vote = vote.unwrap();
@@ -543,8 +540,7 @@ pub fn query_rebase_eligible(
             };
             let rebase_amount_param = if vtokens.is_empty() {
                 Uint128::zero()
-            } else
-            {
+            } else{
                 let (locked_t1, locked_t2): (u128, u128) =
                     vtokens
                         .iter()
@@ -675,10 +671,10 @@ pub fn query_delegated_stats(
             delegated_address,
             height.unwrap(),
         )?;
-        return Ok(delegation_stats);
+        Ok(delegation_stats)
     } else {
         let delegation_stats = DELEGATION_STATS.may_load(deps.storage, delegated_address)?;
-        return Ok(delegation_stats);
+        Ok(delegation_stats)
     }
 }
 
@@ -691,10 +687,10 @@ pub fn query_user_delegation_all(
     if height.is_some() {
         let user_delegation_info =
             DELEGATED.may_load_at_height(deps.storage, delegator_address, height.unwrap())?;
-        return Ok(user_delegation_info);
+        Ok(user_delegation_info)
     } else {
         let user_delegation_info = DELEGATED.may_load(deps.storage, delegator_address)?;
-        return Ok(user_delegation_info);
+        Ok(user_delegation_info)
     }
 }
 

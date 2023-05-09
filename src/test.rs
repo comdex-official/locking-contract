@@ -23,7 +23,7 @@ use comdex_bindings::{ComdexMessages, ComdexQuery};
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Addr, Api, BankMsg, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, StdError, StdResult, Storage, Uint128, WasmQuery,
+    Response, StdError, StdResult, Storage, Uint128, WasmQuery
 };
 
 use cw2::set_contract_version;
@@ -1428,4 +1428,35 @@ fn test_change_vote() {
         .unwrap();
     assert_eq!(vote_weight.votes[0].extended_pair, 2);
     assert_eq!(vote_weight.votes[0].vote_weight, 25u128);
+}
+
+#[test]
+
+fn test_pool_rewards() {
+    let votes_pool = vec![Uint128::from(100_u128), Uint128::from(200_u128), Uint128::from(300_u128)];
+    let pool_votes = Uint128::from(600_u128);
+    let pools_share = Uint128::from(1000_u128);
+
+    let expected_rewards = vec![Uint128::from(166_u128), Uint128::from(333_u128), Uint128::from(500_u128)];
+    let actual_rewards: Vec<Uint128> =votes_pool
+    .iter()
+    .map(|votes| {
+        if pool_votes.is_zero() {
+            Uint128::zero()
+        } else {
+            votes * pools_share / pool_votes
+        }
+    })
+    .collect();
+
+
+    assert_eq!(actual_rewards, expected_rewards);
+}
+
+#[test]
+
+fn test_unwrap_pool_ids() {
+    let a=1000002_u64;
+    let b=a%1000000;
+    assert_eq!(b, 2_u64);
 }

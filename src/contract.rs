@@ -535,7 +535,7 @@ pub fn handle_withdraw(
     }
 
     if total_delegated > vote_power - vwithdrawable {
-        let mut delegation = delegation.unwrap().clone();
+        let mut delegation = delegation.unwrap();
         for delegation_temp in delegation.delegations.iter_mut() {
             let rhs = Decimal::from_ratio(vote_power - vwithdrawable, total_delegated);
             let temp = delegation_temp.delegated;
@@ -847,7 +847,7 @@ pub fn claim_rewards(
         deps.as_ref(),
         env,
         info.clone(),
-        all_proposals.clone(),
+        all_proposals,
         app_id,
     )?;
 
@@ -1307,7 +1307,7 @@ pub fn emission(
         pool_rewards: pool_rewards,
         vault_rewards: vault_rewards,
     };
-
+    
     EMISSION_REWARD.save(deps.storage, proposal_id, &emission_reward)?;
     let surplus = query_surplus_reward(deps.as_ref(), app_id, state.surplus_asset_id)?;
     proposal.total_surplus = surplus.clone();
@@ -1323,7 +1323,6 @@ pub fn emission(
         extended_pair: extd_pair,
         voting_ratio: votes,
     };
-
     let cswap_id = CSWAP_ID.load(deps.storage)?;
     let emission_msg_pools = ComdexMessages::MsgEmissionPoolRewards {
         app_id: app_id,
@@ -1332,7 +1331,6 @@ pub fn emission(
         pools: pool_ids,
         voting_ratio: votes_pool,
     };
-
     let rebase_msg = ComdexMessages::MsgRebaseMint {
         app_id: app_id_param,
         amount: Uint128::from(proposal.rebase_distributed),
@@ -1354,7 +1352,7 @@ pub fn emission(
             app_id: app_id_param,
             asset_id: state.surplus_asset_id,
             contract_addr: env.contract.address.clone().into_string(),
-            amount: surplus.clone(),
+            amount: surplus,
         };
         msg.push(surplus_msg);
     }
@@ -1421,7 +1419,7 @@ fn has_duplicate_elements(vec: &Vec<u64>) -> bool {
         }
         seen_elements.insert(element);
     }
-    return false;
+    false
 }
 pub fn vote_proposal(
     deps: DepsMut<ComdexQuery>,
