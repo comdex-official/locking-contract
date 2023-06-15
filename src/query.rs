@@ -1,18 +1,15 @@
-use std::borrow::Borrow;
-
 use crate::error::ContractError;
 use crate::helpers::get_token_supply;
-use crate::msg::{
-    IssuedNftResponse, QueryMsg, RebaseResponse,
-    WithdrawableResponse,
-};
+use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse};
 use crate::state::{
-    Emission, EmissionVaultPool, LockingPeriod, Proposal, State, TokenSupply, Vote, Vtoken, ADMIN,
-    APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS, EMISSION, EMISSION_REWARD,
-    MAXPROPOSALCLAIMED, PROPOSAL, PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY, TOKENS,
-    VOTERSPROPOSAL, VOTERS_VOTE, VTOKENS,
+    Delegation, DelegationInfo, DelegationStats, Emission, EmissionVaultPool, LockingPeriod,
+    Proposal, RebaseAllResponse, RewardAllResponse, State, TokenSupply, UserDelegationInfo, Vote,
+    VoteResponse, Vtoken, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS,
+    DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION, EMISSION_REWARD, PROPOSAL,
+    PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_VOTE,
+    VTOKENS,
 };
-use comdex_bindings::ComdexQuery;
+use comdex_bindings::{ComdexQuery, GetPoolByAppResponse};
 use cosmwasm_std::{
     entry_point, to_binary, Addr, Binary, Coin, Decimal, Deps, Env, QueryRequest, StdError,
     StdResult, Uint128, WasmQuery,
@@ -103,9 +100,67 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
             gov_token_denom,
             gov_token_id,
         )?),
-
+        QueryMsg::CurrentProposalUser { app_id, address } => {
+            to_binary(&query_current_proposal_user(deps, env, address, app_id)?)
+        }
+        QueryMsg::DelegationRequest {
+            delegated_address,
+            delegator_address,
+            height,
+        } => to_binary(&query_delegation(
+            deps,
+            env,
+            delegated_address,
+            delegator_address,
+            height,
+        )?),
+        QueryMsg::DelegatorParamRequest { delegated_address } => {
+            to_binary(&query_delegator_param(deps, env, delegated_address)?)
+        }
+        QueryMsg::DelegationStats {
+            delegated_address,
+            height,
+        } => to_binary(&query_delegated_stats(
+            deps,
+            env,
+            delegated_address,
+            height,
+        )?),
+        QueryMsg::UserDelegationStats {
+            delegator_address,
+            height,
+        } => to_binary(&query_user_delegation_all(
+            deps,
+            env,
+            delegator_address,
+            height,
+        )?),
+        QueryMsg::UserEmissionVoting {
+            address,
+            proposal_id,
+            denom,
+        } => to_binary(&query_emission_voting_power(
+            deps,
+            env,
+            address,
+            proposal_id,
+            denom,
+        )?),
         _ => panic!("Not implemented"),
     }
+}
+
+pub fn query_pool_by_app(
+    deps: Deps<ComdexQuery>,
+    app_mapping_id_param: u64,
+) -> StdResult<Vec<u64>> {
+    let pool_pair = deps
+        .querier
+        .query::<GetPoolByAppResponse>(&QueryRequest::Custom(ComdexQuery::GetPoolByApp {
+            app_id: app_mapping_id_param,
+        }))?;
+
+    Ok(pool_pair.pools)
 }
 
 pub fn query_admin(deps: Deps<ComdexQuery>, _env: Env) -> StdResult<Option<Addr>> {
@@ -365,46 +420,35 @@ pub fn query_bribe_eligible(
     env: Env,
     address: Addr,
     app_id: u64,
-) -> StdResult<Vec<Coin>> {
-    let max_proposal_claimed = MAXPROPOSALCLAIMED
-        .load(deps.storage, (app_id, address.clone()))
-        .unwrap_or_default();
-
+) -> StdResult<Vec<RewardAllResponse>> {
     let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,
         None => vec![],
     };
 
-    let bribe_coins = calculate_bribe_reward_query(
-        deps,
-        env,
-        max_proposal_claimed,
-        all_proposals,
-        address.borrow(),
-        app_id,
-    );
-    Ok(bribe_coins.unwrap_or_default())
+    let bribe_coins =
+        calculate_bribe_reward_query(deps, env, all_proposals, address.clone(), app_id).unwrap();
+    Ok(bribe_coins)
 }
 
 pub fn calculate_bribe_reward_query(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    max_proposal_claimed: u64,
     all_proposals: Vec<u64>,
-    address: &Addr,
+    address: Addr,
     _app_id: u64,
-) -> Result<Vec<Coin>, ContractError> {
+) -> Result<Vec<RewardAllResponse>, ContractError> {
+    let mut resp: Vec<RewardAllResponse> = vec![];
     //check if active proposal
-    let mut bribe_coins: Vec<Coin> = vec![];
     for proposalid in all_proposals {
-        if proposalid <= max_proposal_claimed {
-            continue;
-        }
+        let mut bribe_coins: Vec<Coin> = vec![];
+        let claimed = VOTERS_CLAIM
+            .may_load(deps.storage, (address.clone(), proposalid))?
+            .unwrap_or_default();
         let vote = match VOTERSPROPOSAL.may_load(deps.storage, (address.to_owned(), proposalid))? {
             Some(val) => val,
             None => continue,
         };
-
         for pair in vote.votes {
             let total_vote_weight = PROPOSALVOTE
                 .load(deps.storage, (proposalid, pair.extended_pair))?
@@ -444,11 +488,17 @@ pub fn calculate_bribe_reward_query(
                 }
             }
         }
+        let response = RewardAllResponse {
+            proposal_id: proposalid,
+            total_incentive: bribe_coins,
+            claimed: claimed,
+        };
+        resp.push(response);
     }
 
     //// send bank message to band
 
-    Ok(bribe_coins)
+    Ok(resp)
 }
 
 pub fn query_rebase_eligible(
@@ -457,65 +507,216 @@ pub fn query_rebase_eligible(
     address: Addr,
     app_id: u64,
     denom: String,
-) -> StdResult<Vec<RebaseResponse>> {
-    let mut response: Vec<RebaseResponse> = vec![];
+) -> StdResult<Vec<RebaseAllResponse>> {
+    let mut response: Vec<RebaseAllResponse> = vec![];
     let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,
         None => vec![],
     };
     for proposal_id_param in all_proposals {
-        let has_rebased =
-            REBASE_CLAIMED.may_load(deps.storage, (address.clone(), proposal_id_param))?;
-        if has_rebased.is_none() {
-            let proposal = PROPOSAL.load(deps.storage, proposal_id_param)?;
-            if !proposal.emission_completed {
-                continue;
-            } else {
-                let supply = SUPPLY
-                    .may_load_at_height(deps.storage, &denom, proposal.height)?
-                    .unwrap();
-                if supply.token == 0 {
-                    continue;
-                }
-                let total_locked: u128 = supply.token;
-                let total_rebase_amount: u128 = proposal.rebase_distributed;
-                let vtokens = match VTOKENS.may_load_at_height(
-                    deps.storage,
-                    (address.clone(), &denom),
-                    proposal.height,
-                )? {
-                    Some(val) => val,
-                    None => vec![],
-                };
-                if vtokens.is_empty() {
-                    continue;
-                }
-                let mut locked_t1: u128 = 0;
-                let mut locked_t2: u128 = 0;
-
-                for vtoken in vtokens {
-                    match vtoken.period {
-                        LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
-                        LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
-                    }
-                }
-                let sum = locked_t1 + locked_t2;
-                let rebase_amount_param = (Uint128::from(total_rebase_amount)
-                    .checked_mul(Uint128::from(sum))?)
-                .checked_div(Uint128::from(total_locked))?;
-                let rebase_response = RebaseResponse {
-                    proposal_id: proposal_id_param,
-                    rebase_amount: rebase_amount_param,
-                };
-                response.push(rebase_response);
-            }
-        } else {
+        let has_rebased = REBASE_CLAIMED
+            .may_load(deps.storage, (address.clone(), proposal_id_param))?
+            .unwrap_or_default();
+        let proposal = PROPOSAL.load(deps.storage, proposal_id_param)?;
+        if !proposal.emission_completed {
             continue;
+        } else {
+            let supply = SUPPLY
+                .may_load_at_height(deps.storage, &denom, proposal.height)?
+                .unwrap();
+
+            let total_locked: u128 = supply.token;
+            let total_rebase_amount: u128 = proposal.rebase_distributed;
+            let vtokens = match VTOKENS.may_load_at_height(
+                deps.storage,
+                (address.clone(), &denom),
+                proposal.height,
+            )? {
+                Some(val) => val,
+                None => vec![],
+            };
+            if vtokens.is_empty() {
+                continue;
+            }
+            let mut locked_t1: u128 = 0;
+            let mut locked_t2: u128 = 0;
+
+            for vtoken in vtokens {
+                match vtoken.period {
+                    LockingPeriod::T1 => locked_t1 += vtoken.token.amount.u128(),
+                    LockingPeriod::T2 => locked_t2 += vtoken.token.amount.u128(),
+                }
+            }
+            let sum = locked_t1 + locked_t2;
+            let rebase_amount_param = (Uint128::from(total_rebase_amount)
+                .checked_mul(Uint128::from(sum))?)
+            .checked_div(Uint128::from(total_locked))?;
+            let rebase_response = RebaseAllResponse {
+                proposal_id: proposal_id_param,
+                rebase: rebase_amount_param,
+                claimed: has_rebased,
+            };
+            response.push(rebase_response);
         }
     }
 
     Ok(response)
 }
+
+pub fn query_current_proposal_user(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    address: Addr,
+    app_id: u64,
+) -> StdResult<Vec<VoteResponse>> {
+    let current_proposal = APPCURRENTPROPOSAL.may_load(deps.storage, app_id)?;
+
+    let current_proposal = current_proposal.unwrap();
+    let proposal = PROPOSAL.load(deps.storage, current_proposal)?;
+
+    let mut resp = vec![];
+    for ext_pair in proposal.extended_pair {
+        let mut user_vote = 0;
+        let mut user_vote_ratio = Decimal::zero();
+        let mut total_incentive = vec![];
+        let mut total_vote = 0;
+        let proposal_vote = PROPOSALVOTE.may_load(deps.storage, (current_proposal, ext_pair))?;
+        if let Some(..) = proposal_vote {
+            let proposal_vote = proposal_vote.unwrap();
+            total_vote = proposal_vote.u128();
+        }
+        let vote = VOTERSPROPOSAL.may_load(deps.storage, (address.clone(), current_proposal))?;
+
+        if let Some(..) = vote {
+            let vote = vote.unwrap();
+            let vote = vote.votes;
+            let vote_tmp = vote.into_iter().find(|x| x.extended_pair == ext_pair);
+            if let Some(..) = vote_tmp {
+                let vote_tmp = vote_tmp.unwrap();
+                user_vote = vote_tmp.vote_weight;
+                user_vote_ratio = vote_tmp.vote_ratio;
+            }
+        }
+        //// load bribe////
+        let bribe = BRIBES_BY_PROPOSAL.may_load(deps.storage, (current_proposal, ext_pair))?;
+        if let Some(..) = bribe {
+            let bribe = bribe.unwrap();
+            total_incentive = bribe;
+        }
+        let vote_response = VoteResponse {
+            pair: ext_pair,
+            user_vote: user_vote,
+            user_vote_ratio: user_vote_ratio,
+            total_incentive: total_incentive,
+            total_vote: total_vote,
+        };
+        resp.push(vote_response);
+    }
+    Ok(resp)
+}
+
+pub fn query_delegation(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    delegated_address: Addr,
+    delegator_address: Addr,
+    height: Option<u64>,
+) -> StdResult<Option<Delegation>> {
+    if height.is_some() {
+        let delegation_user =
+            DELEGATED.may_load_at_height(deps.storage, delegator_address, height.unwrap())?;
+        if delegation_user.is_none() {
+            return Ok(None);
+        }
+        let delegation_user = delegation_user.unwrap();
+        let delegation = delegation_user
+            .delegations
+            .into_iter()
+            .find(|x| x.delegated_to == delegated_address);
+        Ok(delegation)
+    } else {
+        let delegation_user = DELEGATED.may_load(deps.storage, delegator_address)?;
+        if delegation_user.is_none() {
+            return Ok(None);
+        }
+        let delegation_user = delegation_user.unwrap();
+        let delegation = delegation_user
+            .delegations
+            .into_iter()
+            .find(|x| x.delegated_to == delegated_address);
+        Ok(delegation)
+    }
+}
+pub fn query_delegator_param(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    delegated_address: Addr,
+) -> StdResult<Option<DelegationInfo>> {
+    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegated_address)?;
+    Ok(delegation_info)
+}
+
+pub fn query_delegated_stats(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    delegated_address: Addr,
+    height: Option<u64>,
+) -> StdResult<Option<DelegationStats>> {
+    if height.is_some() {
+        let delegation_stats = DELEGATION_STATS.may_load_at_height(
+            deps.storage,
+            delegated_address,
+            height.unwrap(),
+        )?;
+        return Ok(delegation_stats);
+    } else {
+        let delegation_stats = DELEGATION_STATS.may_load(deps.storage, delegated_address)?;
+        return Ok(delegation_stats);
+    }
+}
+
+pub fn query_user_delegation_all(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    delegator_address: Addr,
+    height: Option<u64>,
+) -> StdResult<Option<UserDelegationInfo>> {
+    if height.is_some() {
+        let user_delegation_info =
+            DELEGATED.may_load_at_height(deps.storage, delegator_address, height.unwrap())?;
+        return Ok(user_delegation_info);
+    } else {
+        let user_delegation_info = DELEGATED.may_load(deps.storage, delegator_address)?;
+        return Ok(user_delegation_info);
+    }
+}
+
+pub fn query_emission_voting_power(
+    deps: Deps<ComdexQuery>,
+    _env: Env,
+    address: Addr,
+    proposal_id: u64,
+    denom: String,
+) -> StdResult<u128> {
+    let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
+    let vtokens =
+        VTOKENS.may_load_at_height(deps.storage, (address.clone(), &denom), proposal.height)?;
+    if vtokens.is_none() {
+        return Ok(0);
+    }
+    let mut vote_power: u128 = 0;
+    for vtoken in vtokens.unwrap() {
+        vote_power += vtoken.token.amount.u128();
+    }
+
+    let delegation = DELEGATED.may_load_at_height(deps.storage, address, proposal.height)?;
+    if let Some(..) = delegation {
+        let delegation = delegation.unwrap();
+        vote_power -= delegation.total_casted;
+    }
+    Ok(vote_power)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
