@@ -1,6 +1,4 @@
-use crate::state::{
-    DelegationInfo, Emission, LockingPeriod, PeriodWeight, TokenInfo, Vote, Vtoken,
-};
+use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vote, Vtoken};
 use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -172,30 +170,14 @@ pub enum QueryMsg {
         gov_token_denom: String,
         gov_token_id: u64,
     },
-    DelegationRequest {
-        delegated_address: Addr,
-        delegator_address: Addr,
-        height: Option<u64>,
-    },
     CurrentProposalUser {
         app_id: u64,
         address: Addr,
-    },
-    DelegatorParamRequest {
-        delegated_address: Addr,
     },
     GetEmissionVotingPower {
         address: Addr,
         proposal_id: u64,
         denom: String,
-    },
-    DelegationStats {
-        delegated_address: Addr,
-        height: Option<u64>,
-    },
-    UserDelegationStats {
-        delegator_address: Addr,
-        height: Option<u64>,
     },
     UserEmissionVoting {
         address: Addr,
@@ -227,12 +209,6 @@ pub enum SudoMsg {
     },
     UpdateVotingPeriod {
         voting_period: u64,
-    },
-    AddNewDelegation {
-        delegation_info: DelegationInfo,
-    },
-    UpdateExistingDelegation {
-        delegation_info: DelegationInfo,
     },
 }
 

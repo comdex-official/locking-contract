@@ -2,12 +2,10 @@ use crate::error::ContractError;
 use crate::helpers::get_token_supply;
 use crate::msg::{IssuedNftResponse, QueryMsg, WithdrawableResponse};
 use crate::state::{
-    Delegation, DelegationInfo, DelegationStats, Emission, EmissionVaultPool, LockingPeriod,
-    Proposal, RebaseAllResponse, RewardAllResponse, State, TokenSupply, UserDelegationInfo, Vote,
-    VoteResponse, Vtoken, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL, COMPLETEDPROPOSALS,
-    DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION, EMISSION_REWARD, PROPOSAL,
-    PROPOSALVOTE, REBASE_CLAIMED, STATE, SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_VOTE,
-    VTOKENS,
+    Emission, EmissionVaultPool, LockingPeriod, Proposal, RebaseAllResponse, RewardAllResponse,
+    State, TokenSupply, Vote, VoteResponse, Vtoken, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
+    COMPLETEDPROPOSALS, EMISSION, EMISSION_REWARD, PROPOSAL, PROPOSALVOTE, REBASE_CLAIMED, STATE,
+    SUPPLY, TOKENS, VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_VOTE, VTOKENS,
 };
 use comdex_bindings::{ComdexQuery, GetPoolByAppResponse};
 use cosmwasm_std::{
@@ -103,38 +101,6 @@ pub fn query(deps: Deps<ComdexQuery>, env: Env, msg: QueryMsg) -> StdResult<Bina
         QueryMsg::CurrentProposalUser { app_id, address } => {
             to_binary(&query_current_proposal_user(deps, env, address, app_id)?)
         }
-        QueryMsg::DelegationRequest {
-            delegated_address,
-            delegator_address,
-            height,
-        } => to_binary(&query_delegation(
-            deps,
-            env,
-            delegated_address,
-            delegator_address,
-            height,
-        )?),
-        QueryMsg::DelegatorParamRequest { delegated_address } => {
-            to_binary(&query_delegator_param(deps, env, delegated_address)?)
-        }
-        QueryMsg::DelegationStats {
-            delegated_address,
-            height,
-        } => to_binary(&query_delegated_stats(
-            deps,
-            env,
-            delegated_address,
-            height,
-        )?),
-        QueryMsg::UserDelegationStats {
-            delegator_address,
-            height,
-        } => to_binary(&query_user_delegation_all(
-            deps,
-            env,
-            delegator_address,
-            height,
-        )?),
         QueryMsg::UserEmissionVoting {
             address,
             proposal_id,
@@ -186,7 +152,9 @@ pub fn query_emission_proposal(
     gov_token_id: u64,
 ) -> StdResult<u128> {
     let proposal = PROPOSAL.load(deps.storage, proposal_id)?;
-
+    if proposal.emission_completed {
+        return Ok(proposal.emission_distributed);
+    }
     let vtokens = SUPPLY
         .may_load_at_height(deps.storage, &gov_token_denom, proposal.height)?
         .unwrap();
@@ -427,18 +395,19 @@ pub fn query_bribe_eligible(
     };
 
     let bribe_coins =
-        calculate_bribe_reward_query(deps, env, all_proposals, address.clone(), app_id).unwrap();
+        calculate_bribe_reward_query(deps, env, all_proposals, address, app_id).unwrap();
     Ok(bribe_coins)
 }
 
 pub fn calculate_bribe_reward_query(
     deps: Deps<ComdexQuery>,
     _env: Env,
-    all_proposals: Vec<u64>,
+    mut all_proposals: Vec<u64>,
     address: Addr,
     _app_id: u64,
 ) -> Result<Vec<RewardAllResponse>, ContractError> {
     let mut resp: Vec<RewardAllResponse> = vec![];
+    all_proposals.sort();
     //check if active proposal
     for proposalid in all_proposals {
         let mut bribe_coins: Vec<Coin> = vec![];
@@ -512,10 +481,11 @@ pub fn query_rebase_eligible(
     denom: String,
 ) -> StdResult<Vec<RebaseAllResponse>> {
     let mut response: Vec<RebaseAllResponse> = vec![];
-    let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
+    let mut all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,
         None => vec![],
     };
+    all_proposals.sort();
     for proposal_id_param in all_proposals {
         let has_rebased = REBASE_CLAIMED
             .may_load(deps.storage, (address.clone(), proposal_id_param))?
@@ -540,7 +510,7 @@ pub fn query_rebase_eligible(
             };
             let rebase_amount_param = if vtokens.is_empty() {
                 Uint128::zero()
-            } else{
+            } else {
                 let (locked_t1, locked_t2): (u128, u128) =
                     vtokens
                         .iter()
@@ -549,9 +519,8 @@ pub fn query_rebase_eligible(
                             LockingPeriod::T2 => (acc_t1, acc_t2 + vtoken.token.amount.u128()),
                         });
                 let sum = locked_t1 + locked_t2;
-                (Uint128::from(total_rebase_amount)
-                    .checked_mul(Uint128::from(sum))?)
-                .checked_div(Uint128::from(total_locked))?
+                (Uint128::from(total_rebase_amount).checked_mul(Uint128::from(sum))?)
+                    .checked_div(Uint128::from(total_locked))?
             };
 
             let rebase_response = RebaseAllResponse {
@@ -618,82 +587,6 @@ pub fn query_current_proposal_user(
     Ok(resp)
 }
 
-pub fn query_delegation(
-    deps: Deps<ComdexQuery>,
-    _env: Env,
-    delegated_address: Addr,
-    delegator_address: Addr,
-    height: Option<u64>,
-) -> StdResult<Option<Delegation>> {
-    if height.is_some() {
-        let delegation_user =
-            DELEGATED.may_load_at_height(deps.storage, delegator_address, height.unwrap())?;
-        if delegation_user.is_none() {
-            return Ok(None);
-        }
-        let delegation_user = delegation_user.unwrap();
-        let delegation = delegation_user
-            .delegations
-            .into_iter()
-            .find(|x| x.delegated_to == delegated_address);
-        Ok(delegation)
-    } else {
-        let delegation_user = DELEGATED.may_load(deps.storage, delegator_address)?;
-        if delegation_user.is_none() {
-            return Ok(None);
-        }
-        let delegation_user = delegation_user.unwrap();
-        let delegation = delegation_user
-            .delegations
-            .into_iter()
-            .find(|x| x.delegated_to == delegated_address);
-        Ok(delegation)
-    }
-}
-pub fn query_delegator_param(
-    deps: Deps<ComdexQuery>,
-    _env: Env,
-    delegated_address: Addr,
-) -> StdResult<Option<DelegationInfo>> {
-    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegated_address)?;
-    Ok(delegation_info)
-}
-
-pub fn query_delegated_stats(
-    deps: Deps<ComdexQuery>,
-    _env: Env,
-    delegated_address: Addr,
-    height: Option<u64>,
-) -> StdResult<Option<DelegationStats>> {
-    if height.is_some() {
-        let delegation_stats = DELEGATION_STATS.may_load_at_height(
-            deps.storage,
-            delegated_address,
-            height.unwrap(),
-        )?;
-        Ok(delegation_stats)
-    } else {
-        let delegation_stats = DELEGATION_STATS.may_load(deps.storage, delegated_address)?;
-        Ok(delegation_stats)
-    }
-}
-
-pub fn query_user_delegation_all(
-    deps: Deps<ComdexQuery>,
-    _env: Env,
-    delegator_address: Addr,
-    height: Option<u64>,
-) -> StdResult<Option<UserDelegationInfo>> {
-    if height.is_some() {
-        let user_delegation_info =
-            DELEGATED.may_load_at_height(deps.storage, delegator_address, height.unwrap())?;
-        Ok(user_delegation_info)
-    } else {
-        let user_delegation_info = DELEGATED.may_load(deps.storage, delegator_address)?;
-        Ok(user_delegation_info)
-    }
-}
-
 pub fn query_emission_voting_power(
     deps: Deps<ComdexQuery>,
     _env: Env,
@@ -703,7 +596,7 @@ pub fn query_emission_voting_power(
 ) -> StdResult<u128> {
     let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
     let vtokens =
-        VTOKENS.may_load_at_height(deps.storage, (address.clone(), &denom), proposal.height)?;
+        VTOKENS.may_load_at_height(deps.storage, (address, &denom), proposal.height)?;
     if vtokens.is_none() {
         return Ok(0);
     }
@@ -712,11 +605,6 @@ pub fn query_emission_voting_power(
         vote_power += vtoken.token.amount.u128();
     }
 
-    let delegation = DELEGATED.may_load_at_height(deps.storage, address, proposal.height)?;
-    if let Some(..) = delegation {
-        let delegation = delegation.unwrap();
-        vote_power -= delegation.total_casted;
-    }
     Ok(vote_power)
 }
 

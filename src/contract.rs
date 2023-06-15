@@ -6,9 +6,8 @@ use crate::helpers::{
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, SudoMsg};
 use crate::state::{
     EmissionVaultPool, Proposal, Vote, VotePair, ADMIN, APPCURRENTPROPOSAL, BRIBES_BY_PROPOSAL,
-    COMPLETEDPROPOSALS, CSWAP_ID, DELEGATED, DELEGATION_INFO, DELEGATION_STATS, EMISSION,
-    EMISSION_REWARD, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE, REBASE_CLAIMED, VOTERSPROPOSAL,
-    VOTERS_CLAIM, VOTERS_CLAIMED_PROPOSALS, VOTERS_VOTE,
+    COMPLETEDPROPOSALS, CSWAP_ID, EMISSION, EMISSION_REWARD, PROPOSAL, PROPOSALCOUNT, PROPOSALVOTE,
+    REBASE_CLAIMED, VOTERSPROPOSAL, VOTERS_CLAIM, VOTERS_CLAIMED_PROPOSALS, VOTERS_VOTE,
 };
 use crate::state::{
     LockingPeriod, PeriodWeight, State, Status, TokenInfo, TokenSupply, Vtoken, STATE, SUPPLY,
@@ -138,6 +137,7 @@ pub fn execute(
             )
         }
         ExecuteMsg::RaiseProposal { app_id } => {
+            
             //check if app exist
             query_app_exists(deps.as_ref(), app_id)?;
 
@@ -159,6 +159,7 @@ pub fn execute(
             proposal_id,
             extended_pair,
         } => {
+
             // CHECK IF BRIBE ASSET EXISTS ON-CHAIN
             let bribe_coin = info.funds[0].clone();
             let found = query_whitelisted_asset(deps.as_ref(), bribe_coin.denom.clone())?;
@@ -194,21 +195,10 @@ pub fn execute(
                     val: "Wrong Deposit token".to_string(),
                 });
             }
-            let delegation_info = DELEGATION_INFO.may_load(deps.storage, info.sender.clone())?;
-            if delegation_info.is_some() {
-                return Err(ContractError::CustomError {
-                    val: "The delegated address cannot create a lock".to_string(),
-                });
-            }
 
             handle_lock_nft(deps, env, info, app_id, locking_period, recipient)
         }
         ExecuteMsg::Withdraw { denom } => handle_withdraw(deps, env, info, denom),
-        // ExecuteMsg::Transfer {
-        //     recipient,
-        //     locking_period,
-        //     denom,
-        // } => handle_transfer(deps, env, info, recipient, locking_period, denom),
         ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
         _ => Err(ContractError::CustomError {
             val: "Invalid message".to_string(),
@@ -492,12 +482,6 @@ pub fn handle_withdraw(
 
     let mut vtokens_denom = vtokens.unwrap();
 
-    let mut vote_power: u128 = 0;
-
-    for vtoken in vtokens_denom.iter() {
-        vote_power += vtoken.vtoken.amount.u128();
-    }
-
     // Retrieve unlocked tokens with the given locking period
     let vtokens: Vec<(usize, &Vtoken)> = vtokens_denom
         .iter()
@@ -526,42 +510,6 @@ pub fn handle_withdraw(
         vtokens_denom.remove(index);
     }
 
-    let delegation = DELEGATED.may_load(deps.storage, info.sender.clone())?;
-
-    let mut total_delegated = 0u128;
-    if delegation.is_some() {
-        let delegation = delegation.clone().unwrap();
-        total_delegated = delegation.total_casted;
-    }
-
-    if total_delegated > vote_power - vwithdrawable {
-        let mut delegation = delegation.unwrap();
-        for delegation_temp in delegation.delegations.iter_mut() {
-            let rhs = Decimal::from_ratio(vote_power - vwithdrawable, total_delegated);
-            let temp = delegation_temp.delegated;
-            let mut delegation_stats = DELEGATION_STATS
-                .may_load(deps.storage, delegation_temp.delegated_to.clone())?
-                .unwrap();
-            delegation_stats.total_delegated -= temp;
-            delegation_stats.total_delegated +=
-                rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
-
-            delegation_temp.delegated = rhs.mul(Uint128::new(delegation_temp.delegated)).u128();
-            DELEGATION_STATS.save(
-                deps.storage,
-                delegation_temp.delegated_to.clone(),
-                &delegation_stats,
-                env.block.height,
-            )?;
-        }
-        delegation.total_casted = delegation.total_casted - vote_power - vwithdrawable;
-        DELEGATED.save(
-            deps.storage,
-            info.sender.clone(),
-            &delegation,
-            env.block.height,
-        )?;
-    }
     // Update VTOKENS
     if vtokens_denom.is_empty() {
         VTOKENS.remove(
@@ -793,13 +741,6 @@ pub fn claim_rewards(
         return Err(ContractError::FundsNotAllowed {});
     }
 
-    let delegation_info = DELEGATION_INFO.may_load(deps.storage, info.sender.clone())?;
-    if delegation_info.is_some() {
-        return Err(ContractError::CustomError {
-            val: String::from("Delegated address cannot claim"),
-        });
-    }
-
     let all_proposals = match COMPLETEDPROPOSALS.may_load(deps.storage, app_id)? {
         Some(val) => val,
         None => vec![],
@@ -843,13 +784,8 @@ pub fn claim_rewards(
             }));
     }
 
-    let (mut bribe_coins, claimed_proposals) = calculate_bribe_reward(
-        deps.as_ref(),
-        env,
-        info.clone(),
-        all_proposals,
-        app_id,
-    )?;
+    let (mut bribe_coins, claimed_proposals) =
+        calculate_bribe_reward(deps.as_ref(), env, info.clone(), all_proposals, app_id)?;
 
     VOTERS_CLAIMED_PROPOSALS.save(deps.storage, info.sender.clone(), &claimed_proposals)?;
     for proposal in claimed_proposals {
@@ -1307,7 +1243,7 @@ pub fn emission(
         pool_rewards: pool_rewards,
         vault_rewards: vault_rewards,
     };
-    
+
     EMISSION_REWARD.save(deps.storage, proposal_id, &emission_reward)?;
     let surplus = query_surplus_reward(deps.as_ref(), app_id, state.surplus_asset_id)?;
     proposal.total_surplus = surplus.clone();
@@ -1368,47 +1304,6 @@ pub fn emission(
     Ok(Response::new()
         .add_attribute("method", "emission")
         .add_messages(msg))
-}
-
-pub fn update_protocol_fees(
-    deps: DepsMut<ComdexQuery>,
-    env: Env,
-    info: MessageInfo,
-    delegation_address: Addr,
-    new_protocol_fees: Decimal,
-) -> Result<Response<ComdexMessages>, ContractError> {
-    //// check if delegation_address exists////
-    let delegation_info = DELEGATION_INFO.may_load(deps.storage, delegation_address.clone())?;
-    if delegation_info.is_none() {
-        return Err(ContractError::CustomError {
-            val: "Delegation address does not exist".to_string(),
-        });
-    }
-    // check if the sender is the owner of the delegation
-    let mut delegation_info = delegation_info.unwrap();
-    if delegation_info.delegated_address != info.sender {
-        return Err(ContractError::CustomError {
-            val: "Sender is not the owner of the delegation".to_string(),
-        });
-    }
-    if new_protocol_fees > delegation_info.delegator_fees || new_protocol_fees < Decimal::zero() {
-        return Err(ContractError::CustomError {
-            val: "New Delegator fees cannot be greater than delegator fees nor can be less than 0%"
-                .to_string(),
-        });
-    }
-    // update the protocol fees
-    delegation_info.protocol_fees = new_protocol_fees;
-    DELEGATION_INFO.save(
-        deps.storage,
-        delegation_address,
-        &delegation_info,
-        env.block.height,
-    )?;
-
-    Ok(Response::new()
-        .add_attribute("action", "update_protocol_fees")
-        .add_attribute("from", info.sender))
 }
 
 fn has_duplicate_elements(vec: &Vec<u64>) -> bool {
@@ -1505,7 +1400,6 @@ pub fn vote_proposal(
         });
     }
 
-    // check if extended pair has no duplicate
 
     //balance of  denom for voting
 
@@ -1517,10 +1411,7 @@ pub fn vote_proposal(
         proposal.height,
     )?;
 
-    let delegator_locked =
-        DELEGATION_STATS.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
-
-    if vtokens.is_none() && delegator_locked.is_none() {
+    if vtokens.is_none() {
         return Err(ContractError::CustomError {
             val: "No tokens locked to perform voting on proposals".to_string(),
         });
@@ -1532,22 +1423,10 @@ pub fn vote_proposal(
         }
     }
 
-    if let Some(delegator_locked) = delegator_locked {
-        vote_power = delegator_locked.total_delegated;
-    }
-
     if vote_power == 0 {
         return Err(ContractError::CustomError {
             val: "No tokens locked to perform voting on proposals".to_string(),
         });
-    }
-
-    //// decrease voting power if delegated
-    let delegation =
-        DELEGATED.may_load_at_height(deps.storage, info.sender.clone(), proposal.height)?;
-    if delegation.is_some() {
-        let delegation = delegation.unwrap();
-        vote_power -= delegation.total_casted;
     }
 
     //if already voted , decrease previous vote weight
@@ -1609,6 +1488,7 @@ pub fn raise_proposal(
     app_id: u64,
     ext_pairs: Vec<u64>,
 ) -> Result<Response<ComdexMessages>, ContractError> {
+    
     //// only admin can execute
     ADMIN.assert_admin(deps.as_ref(), &info.sender)?;
 
@@ -1750,8 +1630,6 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
-        _ => Err(ContractError::CustomError {
-            val: "Invalid message".to_string(),
-        }),
+        
     }
 }

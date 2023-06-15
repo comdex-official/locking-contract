@@ -6,4 +6,3 @@ pub mod query;
 pub mod state;
 //pub mod test;
 pub use crate::error::ContractError;
-pub mod delegated;

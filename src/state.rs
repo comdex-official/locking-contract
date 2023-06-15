@@ -5,13 +5,6 @@ use cw_storage_plus::{Item, Map, SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub const VOTEPOWER: SnapshotMap<(&Addr, String), Uint128> = SnapshotMap::new(
-    "voters_key",
-    "voters_power_checkpoints",
-    "voters_power_changelogs",
-    Strategy::EveryBlock,
-);
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct PeriodWeight {
@@ -173,17 +166,6 @@ pub struct Delegation {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
-pub struct DelegationInfo {
-    pub delegated_address: Addr,
-    /// syndicate address
-    pub delegated_name: String, //// syndicate name
-    pub fee_collector_address: Addr,
-    pub protocol_fees: Decimal,  // fixed
-    pub delegator_fees: Decimal, // variable fee charged by the syndicate from delegator
-    pub excluded_fee_pair: Vec<u64>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct VoteResponse {
     pub pair: u64,
     pub total_incentive: Vec<Coin>,
@@ -238,38 +220,12 @@ pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("voters_vote");
 
 pub const VOTERS_CLAIM: Map<(Addr, u64), bool> = Map::new("voters_claim");
 
-pub const DELEGATOR_CLAIM: Map<(Addr, u64), bool> = Map::new("delegator_claim");
-
 pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("voters_proposal");
 
 pub const VOTERS_CLAIMED_PROPOSALS: Map<Addr, Vec<u64>> = Map::new("voters_claimed_proposals");
-
-pub const DELEGATOR_CLAIMED_PROPOSALS: Map<Addr, Vec<u64>> =
-    Map::new("delegator_claimed_proposals");
 
 pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max_proposal_claimed");
 
 pub const COMPLETEDPROPOSALS: Map<u64, Vec<u64>> = Map::new("completed_proposals");
 
 pub const REBASE_CLAIMED: Map<(Addr, u64), bool> = Map::new("rebase_claimed");
-
-pub const DELEGATED: SnapshotMap<Addr, UserDelegationInfo> = SnapshotMap::new(
-    "delegated",
-    "delegated_checkpoints",
-    "delegated_changelogs",
-    Strategy::EveryBlock,
-);
-
-pub const DELEGATION_INFO: SnapshotMap<Addr, DelegationInfo> = SnapshotMap::new(
-    "delegation_info",
-    "delegation_info_checkpoints",
-    "delegation_info_changelogs",
-    Strategy::EveryBlock,
-);
-
-pub const DELEGATION_STATS: SnapshotMap<Addr, DelegationStats> = SnapshotMap::new(
-    "delegation_stats",
-    "delegation_stats_checkpoints",
-    "delegation_stats_changelogs",
-    Strategy::EveryBlock,
-);
