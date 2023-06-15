@@ -137,7 +137,6 @@ pub fn execute(
             )
         }
         ExecuteMsg::RaiseProposal { app_id } => {
-            
             //check if app exist
             query_app_exists(deps.as_ref(), app_id)?;
 
@@ -159,7 +158,6 @@ pub fn execute(
             proposal_id,
             extended_pair,
         } => {
-
             // CHECK IF BRIBE ASSET EXISTS ON-CHAIN
             let bribe_coin = info.funds[0].clone();
             let found = query_whitelisted_asset(deps.as_ref(), bribe_coin.denom.clone())?;
@@ -1400,7 +1398,6 @@ pub fn vote_proposal(
         });
     }
 
-
     //balance of  denom for voting
 
     let mut vote_power: u128 = 0;
@@ -1488,7 +1485,6 @@ pub fn raise_proposal(
     app_id: u64,
     ext_pairs: Vec<u64>,
 ) -> Result<Response<ComdexMessages>, ContractError> {
-    
     //// only admin can execute
     ADMIN.assert_admin(deps.as_ref(), &info.sender)?;
 
@@ -1630,6 +1626,5 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> Result<Response, Contract
             STATE.save(deps.storage, &state)?;
             Ok(Response::new())
         }
-        
     }
 }

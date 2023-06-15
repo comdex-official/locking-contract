@@ -595,8 +595,7 @@ pub fn query_emission_voting_power(
     denom: String,
 ) -> StdResult<u128> {
     let proposal = PROPOSAL.may_load(deps.storage, proposal_id)?.unwrap();
-    let vtokens =
-        VTOKENS.may_load_at_height(deps.storage, (address, &denom), proposal.height)?;
+    let vtokens = VTOKENS.may_load_at_height(deps.storage, (address, &denom), proposal.height)?;
     if vtokens.is_none() {
         return Ok(0);
     }
