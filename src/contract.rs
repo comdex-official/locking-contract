@@ -198,9 +198,7 @@ pub fn execute(
         }
         ExecuteMsg::Withdraw { denom } => handle_withdraw(deps, env, info, denom),
         ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
-        _ => Err(ContractError::CustomError {
-            val: "Invalid message".to_string(),
-        }),
+        
     }
 }
 

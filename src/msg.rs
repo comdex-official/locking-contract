@@ -51,40 +51,7 @@ pub enum ExecuteMsg {
     },
     Withdraw {
         denom: String,
-    },
-    Transfer {
-        recipient: String,
-        locking_period: LockingPeriod,
-        denom: String,
-    },
-    Delegate {
-        delegation_address: Addr,
-        denom: String,
-        ratio: Decimal,
-    },
-    Undelegate {
-        delegation_address: Addr,
-    },
-    UpdateProtocolFees {
-        delegate_address: Addr,
-        fees: Decimal,
-    },
-    ClaimRewardsDelegated {
-        delegated_address: Addr,
-        proposal_id: Option<u64>,
-        app_id: u64,
-    },
-    UpdateExcludedFeePair {
-        delegate_address: Addr,
-        harbor_app_id: u64,
-        cswap_app_id: u64,
-        excluded_fee_pair: Vec<u64>,
-    },
-    DelegatedProtocolFeeClaim {
-        delegated_address: Addr,
-        app_id: u64,
-        proposal_id: u64,
-    },
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
