@@ -51,7 +51,7 @@ pub enum ExecuteMsg {
     },
     Withdraw {
         denom: String,
-    }
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]

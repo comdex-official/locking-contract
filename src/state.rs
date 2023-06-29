@@ -94,6 +94,7 @@ pub const SUPPLY: SnapshotMap<&str, TokenSupply> = SnapshotMap::new(
     "supply_changelogs",
     Strategy::EveryBlock,
 );
+
 // Vtoken owned by an address for a specific denom
 pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
     "owner_vtoken",

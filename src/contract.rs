@@ -198,7 +198,6 @@ pub fn execute(
         }
         ExecuteMsg::Withdraw { denom } => handle_withdraw(deps, env, info, denom),
         ExecuteMsg::Rebase { proposal_id } => calculate_rebase_reward(deps, env, info, proposal_id),
-        
     }
 }
 
@@ -271,7 +270,6 @@ fn lock_funds(
             val: "Lock amount less than minimum lock amount".to_string(),
         });
     }
-
     // Load the locking period and weight
     let PeriodWeight { period, weight } = get_period(state.clone(), locking_period.clone())?;
 
