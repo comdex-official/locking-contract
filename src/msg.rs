@@ -1,4 +1,4 @@
-use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vtoken};
+use crate::state::{Emission, LockingPeriod, PeriodWeight, TokenInfo, Vote, Vtoken};
 use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,7 @@ pub struct InstantiateMsg {
     pub emission: Emission,
     pub admin: Addr,
     pub min_lock_amount: Uint128,
+    pub cswap_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
@@ -23,13 +24,15 @@ pub enum ExecuteMsg {
     VoteProposal {
         app_id: u64,
         proposal_id: u64,
-        extended_pair: u64,
+        extended_pair: Vec<u64>,
+        ratio: Vec<Decimal>,
     },
     RaiseProposal {
         app_id: u64,
     },
     ClaimReward {
         app_id: u64,
+        proposal_id: Option<u64>,
     },
     Bribe {
         proposal_id: u64,
@@ -48,14 +51,6 @@ pub enum ExecuteMsg {
     },
     Withdraw {
         denom: String,
-    },
-    Transfer {
-        recipient: String,
-        locking_period: LockingPeriod,
-        denom: String,
-    },
-    FoundationRewards {
-        proposal_id: u64,
     },
 }
 
@@ -133,6 +128,29 @@ pub enum QueryMsg {
         denom: String,
     },
     Admin {},
+    EmissionRewards {
+        proposal_id: u64,
+    },
+    ProjectedEmission {
+        proposal_id: u64,
+        app_id: u64,
+        gov_token_denom: String,
+        gov_token_id: u64,
+    },
+    CurrentProposalUser {
+        app_id: u64,
+        address: Addr,
+    },
+    GetEmissionVotingPower {
+        address: Addr,
+        proposal_id: u64,
+        denom: String,
+    },
+    UserEmissionVoting {
+        address: Addr,
+        proposal_id: u64,
+        denom: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
@@ -163,10 +181,7 @@ pub enum SudoMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct MigrateMsg {
-    pub admin_address: Addr,
-    pub voting_period: u64,
-    pub vesting_contract: Addr,
-    pub app_id: u64,
+    pub cswap_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
@@ -180,32 +195,32 @@ pub struct RebaseResponse {
     pub rebase_amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct WithdrawableResponse {
     pub amount: Coin,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct UnlockedTokensResponse {
     pub tokens: Vec<Coin>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct LockedTokensResponse {
     pub tokens: Vec<Coin>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct IssuedVtokensResponse {
     pub vtokens: Vec<Vtoken>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct ProposalVoteRespons {
-    pub proposal_pair_data: Vec<ProposalPairVote>,
+    pub proposal_pair_data: Vec<Vote>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct ProposalPairVote {
     pub extended_pair_id: u64,
     pub my_vote: Uint128,

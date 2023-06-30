@@ -5,13 +5,6 @@ use cw_storage_plus::{Item, Map, SnapshotMap, Strategy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub const VOTEPOWER: SnapshotMap<(&Addr, String), Uint128> = SnapshotMap::new(
-    "voters_key",
-    "voters_checkpoints",
-    "voters_changelogs",
-    Strategy::EveryBlock,
-);
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct PeriodWeight {
@@ -36,7 +29,7 @@ pub enum Status {
     Unlocked,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct Vtoken {
     /// amount of token being locked
@@ -101,6 +94,7 @@ pub const SUPPLY: SnapshotMap<&str, TokenSupply> = SnapshotMap::new(
     "supply_changelogs",
     Strategy::EveryBlock,
 );
+
 // Vtoken owned by an address for a specific denom
 pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
     "owner_vtoken",
@@ -109,7 +103,7 @@ pub const VTOKENS: SnapshotMap<(Addr, &str), Vec<Vtoken>> = SnapshotMap::new(
     Strategy::EveryBlock,
 );
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct Proposal {
     pub app_id: u64,
     pub voting_start_time: Timestamp,
@@ -136,13 +130,80 @@ pub struct Emission {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
-pub struct Vote {
+pub struct Reward {
+    pub id: u64,
+    pub reward: Uint128,
+}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct EmissionVaultPool {
     pub app_id: u64,
+    pub pool_ids: Vec<u64>,
+    pub vault_ids: Vec<u64>,
+    pub total_emission_rewards: Uint128,
+    pub pool_rewards: Vec<Uint128>,
+    pub vault_rewards: Vec<Uint128>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct Vote {
+    pub voting_power_total: u128,
+    pub total_voted_ratio: Decimal,
+    pub votes: Vec<VotePair>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct VotePair {
     pub extended_pair: u64,
+    pub vote_ratio: Decimal,
     pub vote_weight: u128,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct Delegation {
+    pub delegated_to: Addr,
+    pub delegated_at: Timestamp,
+    pub delegation_end_at: Timestamp,
+    pub delegated: u128,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct VoteResponse {
+    pub pair: u64,
+    pub total_incentive: Vec<Coin>,
+    pub user_vote: u128,
+    pub user_vote_ratio: Decimal,
+    pub total_vote: u128,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct RewardAllResponse {
+    pub proposal_id: u64,
+    pub total_incentive: Vec<Coin>,
+    pub claimed: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct RebaseAllResponse {
+    pub proposal_id: u64,
+    pub rebase: Uint128,
+    pub claimed: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct DelegationStats {
+    pub total_delegated: u128,
+    pub total_delegators: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
+pub struct UserDelegationInfo {
+    pub total_casted: u128,
+    pub delegations: Vec<Delegation>,
+}
+
 pub const PROPOSALCOUNT: Item<u64> = Item::new("proposal_count");
+
+pub const CSWAP_ID: Item<u64> = Item::new("cswap_id");
 
 pub const APPCURRENTPROPOSAL: Map<u64, u64> = Map::new("app_current_proposal");
 
@@ -154,9 +215,15 @@ pub const BRIBES_BY_PROPOSAL: Map<(u64, u64), Vec<Coin>> = Map::new("bribes_by_p
 
 pub const EMISSION: Map<u64, Emission> = Map::new("emission");
 
+pub const EMISSION_REWARD: Map<u64, EmissionVaultPool> = Map::new("emission_rewards");
+
 pub const VOTERS_VOTE: Map<(Addr, u64), bool> = Map::new("voters_vote");
 
+pub const VOTERS_CLAIM: Map<(Addr, u64), bool> = Map::new("voters_claim");
+
 pub const VOTERSPROPOSAL: Map<(Addr, u64), Vote> = Map::new("voters_proposal");
+
+pub const VOTERS_CLAIMED_PROPOSALS: Map<Addr, Vec<u64>> = Map::new("voters_claimed_proposals");
 
 pub const MAXPROPOSALCLAIMED: Map<(u64, Addr), u64> = Map::new("max_proposal_claimed");
 
